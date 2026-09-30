@@ -61,6 +61,52 @@
     </style>
 </head>
 <body class="min-h-screen text-slate-800 flex flex-col bg-slate-100">
+    <!-- Firebase SDK Modular -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+  import { getFirestore, doc, setDoc, collection, addDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+  import { getStorage, ref, uploadString, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js";
+
+  // Tempel firebaseConfig yang Anda dapat dari Langkah 1 di sini:
+  const firebaseConfig = {
+  apiKey: "AIzaSyCg7yHvA9T7dohEazVaPu_XK51KrU1Lhek",
+  authDomain: "jack-cbt-app.firebaseapp.com",
+  projectId: "jack-cbt-app",
+  storageBucket: "jack-cbt-app.firebasestorage.app",
+  messagingSenderId: "1084710133948",
+  appId: "1:1084710133948:web:402d64d9a187c578a270b9"
+  };
+
+  // Inisialisasi Firebase
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
+  const storage = getStorage(app);
+
+  // Buat fungsi global agar bisa dipanggil dari kode JavaScript CBT Anda
+  window.db = db;
+  window.storage = storage;
+
+  // Fungsi menyimpan data peserta ke Cloud Firestore
+  window.savePesertaToCloud = async function(pesertaData) {
+    try {
+      await setDoc(doc(db, "peserta", pesertaData.username), pesertaData);
+      console.log("Data peserta tersimpan di Google Cloud!");
+    } catch (e) {
+      console.error("Gagal simpan ke cloud:", e);
+    }
+  };
+
+  // Fungsi mengunggah snapshot kamera pengawas ke Cloud Storage
+  window.uploadSnapToCloud = async function(username, base64Image) {
+    try {
+      const storageRef = ref(storage, `monitoring/${username}_${Date.now()}.jpg`);
+      await uploadString(storageRef, base64Image, 'data_url');
+      return await getDownloadURL(storageRef);
+    } catch (e) {
+      console.error("Gagal upload foto kamera:", e);
+    }
+  };
+</script>
 
     <!-- HEADER ATAS (PERSIS REFERENSI) -->
     <header id="mainHeader" class="bg-white shadow-sm sticky top-0 z-40 px-4 py-2.5 flex justify-between items-center transition-all duration-300">
