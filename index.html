@@ -3,6 +3,763 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simulasi CBT Adaptif Terintegrasi</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom Styling for CBT Engine */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #f1f5f9; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        
+        .blink-rec { animation: blinker 1.2s linear infinite; }
+        @keyframes blinker { 50% { opacity: 0; } }
+
+        .split-height { height: calc(100vh - 70px); }
+        .no-select { -webkit-user-select: none; user-select: none; }
+    </style>
+</head>
+<body class="bg-slate-100 font-sans text-slate-800 antialiased h-screen overflow-hidden flex flex-col no-select">
+
+    <!-- FIREBASE MODULE SDK v10 -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { getFirestore, doc, setDoc, addDoc, collection, getDocs, updateDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyCg7yHvA9T7dohEazVaPu_XK51KrU1Lhek",
+            authDomain: "jack-cbt-app.firebaseapp.com",
+            projectId: "jack-cbt-app",
+            storageBucket: "jack-cbt-app.firebasestorage.app",
+            messagingSenderId: "1084710133948",
+            appId: "1:1084710133948:web:402d64d9a187c578a270b9"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        // Global Firebase functions
+        window.savePesertaToCloud = async function(peserta) {
+            try {
+                await setDoc(doc(db, "peserta", peserta.username), peserta);
+                console.log("🔥 Cloud: Peserta tersimpan.");
+            } catch(e) { console.error("Firebase Error:", e); }
+        };
+
+        window.saveHasilToCloud = async function(username, hasilData) {
+            try {
+                await setDoc(doc(db, "hasil_ujian", `${username}_${Date.now()}`), hasilData);
+                await updateDoc(doc(db, "peserta", username), { status: "Selesai", score: hasilData.score });
+                console.log("🔥 Cloud: Hasil Ujian tersimpan.");
+            } catch(e) { console.error("Firebase Error:", e); }
+        };
+
+        window.saveSnapshotToCloud = async function(username, snapshotData) {
+            try {
+                await addDoc(collection(db, "log_kamera"), {
+                    username: username,
+                    image: snapshotData,
+                    timestamp: new Date().toISOString()
+                });
+            } catch(e) { console.error("Firebase Snapshot Error:", e); }
+        };
+    </script>
+
+    <!-- HEADER GLOBAL -->
+    <header class="bg-white shadow-sm h-[70px] px-6 flex items-center justify-between shrink-0 z-50 border-b border-slate-200">
+        <div class="flex items-center gap-3">
+            <div class="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold shadow">
+                <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M12 3L1 9l4 2.18v6L12 21l7-3.82v-6l2-1.09V17h2V9L12 3zm6.82 6L12 12.72 5.18 9 12 5.28 18.82 9zM17 15.99l-5 2.73-5-2.73v-3.72L12 15l5-2.73v3.72z"/></svg>
+            </div>
+            <div>
+                <h1 class="text-base font-bold text-slate-800 leading-tight">Simulasi CBT Adaptif</h1>
+                <p class="text-xs text-slate-500">Sistem Ujian Online Terintegrasi & Pengawasan Kamera</p>
+            </div>
+        </div>
+
+        <!-- WIDGET HEADER UJIAN (TIMER SISA WAKTU & LIVE WEBCAM) -->
+        <div id="exam-header-widget" class="hidden flex items-center gap-6 bg-slate-50 border border-slate-200 px-4 py-1.5 rounded-full shadow-inner">
+            <!-- Display Timer -->
+            <div class="flex items-center gap-2">
+                <span class="text-xs font-bold text-slate-400">SISA WAKTU:</span>
+                <span id="timer-display" class="font-mono text-xl font-bold text-red-600">00:00</span>
+            </div>
+            <div class="h-6 w-px bg-slate-300"></div>
+            <!-- Live Preview Wajah Peserta -->
+            <div class="flex items-center gap-2">
+                <div class="relative w-11 h-11 bg-black rounded overflow-hidden border border-slate-300 shadow">
+                    <video id="header-webcam-preview" autoplay playsinline muted class="w-full h-full object-cover transform -scale-x-100"></video>
+                </div>
+                <div class="flex items-center gap-1 text-[10px] font-bold text-red-600 blink-rec">
+                    <span class="w-2 h-2 rounded-full bg-red-600"></span> REC
+                </div>
+            </div>
+        </div>
+
+        <!-- HEADER USER INFO -->
+        <div id="header-user-info" class="hidden flex items-center gap-3">
+            <div class="text-right">
+                <div id="user-display-name" class="text-sm font-bold text-slate-700">Nama User</div>
+                <div id="user-display-role" class="text-xs text-slate-500">Peserta</div>
+            </div>
+            <div id="user-avatar" class="w-9 h-9 bg-blue-500 text-white rounded-full flex items-center justify-center font-bold text-sm">U</div>
+            <button onclick="handleLogout()" class="text-xs bg-red-50 text-red-600 hover:bg-red-100 px-3 py-1.5 rounded font-medium transition ml-2">Keluar</button>
+        </div>
+    </header>
+
+    <!-- MAIN CONTAINER -->
+    <main class="flex-1 overflow-y-auto relative">
+
+        <!-- 1. VIEW: AUTHENTICATION (LOGIN & REGISTER PESERTA + MODAL ADMIN) -->
+        <div id="view-auth" class="min-h-full flex items-center justify-center py-10 px-4">
+            <div class="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-md overflow-hidden">
+                <div class="flex border-b border-slate-200 bg-slate-50">
+                    <button onclick="switchAuthTab('login')" id="tab-login" class="flex-1 py-4 text-center font-bold text-blue-600 border-b-2 border-blue-600 bg-white">Login Peserta</button>
+                    <button onclick="switchAuthTab('register')" id="tab-register" class="flex-1 py-4 text-center font-medium text-slate-500 hover:bg-slate-100">Daftar Akun</button>
+                </div>
+
+                <!-- Form Login Peserta -->
+                <div id="form-login-container" class="p-8">
+                    <h2 class="text-xl font-bold text-slate-800 mb-1 text-center">Masuk Akun CBT Peserta</h2>
+                    <p class="text-xs text-slate-500 mb-6 text-center">Gunakan Tanggal Lahir (DDMMYYYY) & Password Nama Ibu</p>
+                    <form onsubmit="handleParticipantLogin(event)" class="space-y-4">
+                        <div>
+                            <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Username / No. Peserta</label>
+                            <input type="text" id="loginUsername" required placeholder="Contoh: 30062007" class="w-full px-4 py-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Password (Nama Ibu Kandung)</label>
+                            <input type="password" id="loginPassword" required placeholder="Huruf kecil tanpa spasi" class="w-full px-4 py-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                        </div>
+                        <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg shadow transition">Masuk Ujian</button>
+                    </form>
+                    <div class="mt-8 text-center border-t pt-4">
+                        <button onclick="openAdminModal()" class="text-xs font-bold text-slate-400 hover:text-slate-600 underline">Akses Portal Admin CBT</button>
+                    </div>
+                </div>
+
+                <!-- Form Registrasi Peserta -->
+                <div id="form-register-container" class="p-8 hidden">
+                    <h2 class="text-xl font-bold text-slate-800 mb-1 text-center">Pendaftaran Peserta Baru</h2>
+                    <p class="text-xs text-slate-500 mb-6 text-center">Lengkapi biodata resmi untuk pembuatan akun ujian</p>
+                    <form onsubmit="handleParticipantRegister(event)" class="space-y-4">
+                        <div>
+                            <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Nama Lengkap</label>
+                            <input type="text" id="regFullName" required placeholder="Sesuai dokumen resmi" class="w-full px-4 py-2 border rounded-lg outline-none focus:ring-2 focus:ring-blue-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Tanggal Lahir</label>
+                            <input type="date" id="regBirthDate" required class="w-full px-4 py-2 border rounded-lg outline-none focus:ring-2 focus:ring-blue-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Nama Ibu Kandung</label>
+                            <input type="text" id="regMotherName" required placeholder="Digunakan sebagai password" class="w-full px-4 py-2 border rounded-lg outline-none focus:ring-2 focus:ring-blue-500">
+                        </div>
+                        <button type="submit" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-lg shadow transition">Daftar Akun Sekarang</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- MODAL LOGIN ADMIN -->
+        <div id="admin-modal" class="hidden fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div class="bg-white p-6 rounded-2xl shadow-2xl w-full max-w-sm relative">
+                <button onclick="closeAdminModal()" class="absolute top-4 right-4 text-slate-400 hover:text-slate-600 font-bold">✕</button>
+                <h3 class="text-lg font-bold text-slate-800 mb-1">Login Portal Administrator</h3>
+                <p class="text-xs text-slate-500 mb-4">Gunakan kredensial pengawas ujian</p>
+                <form onsubmit="handleAdminLogin(event)" class="space-y-3">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 mb-1">Username Admin</label>
+                        <input type="text" id="adminUser" required class="w-full px-3 py-2 border rounded-lg outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 mb-1">Password</label>
+                        <input type="password" id="adminPass" required class="w-full px-3 py-2 border rounded-lg outline-none">
+                    </div>
+                    <button type="submit" class="w-full bg-slate-800 hover:bg-slate-900 text-white font-bold py-2.5 rounded-lg transition mt-2">Masuk Admin</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- 2. VIEW: DASHBOARD PESERTA -->
+        <div id="view-dashboard" class="hidden max-w-4xl mx-auto py-10 px-4">
+            <div class="bg-gradient-to-r from-blue-600 to-indigo-700 text-white rounded-2xl p-8 mb-6 shadow-xl flex flex-col md:flex-row justify-between items-center gap-6">
+                <div>
+                    <span class="bg-blue-500/40 text-blue-100 text-xs px-3 py-1 rounded-full font-semibold uppercase tracking-wider">Kartu Peserta Ujian</span>
+                    <h2 class="text-3xl font-extrabold mt-2 mb-1" id="dashName">Nama Peserta</h2>
+                    <p class="text-blue-100 text-sm">Nomor ID / Username: <span id="dashUsername" class="font-mono bg-blue-800/60 px-2 py-0.5 rounded font-bold"></span></p>
+                </div>
+                <button onclick="startExamFlow()" class="bg-white text-blue-700 font-extrabold px-8 py-3.5 rounded-xl shadow-lg hover:bg-blue-50 transition transform hover:-translate-y-0.5">▶ Ikuti Ujian CBT</button>
+            </div>
+
+            <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
+                <h3 class="text-sm font-bold text-slate-800 border-b pb-3 mb-4 uppercase tracking-wider">Biodata Terdaftar</h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="bg-slate-50 p-4 rounded-xl border border-slate-100"><span class="block text-xs text-slate-400 font-bold mb-1">NAMA LENGKAP</span><div id="bioNama" class="font-bold text-slate-700"></div></div>
+                    <div class="bg-slate-50 p-4 rounded-xl border border-slate-100"><span class="block text-xs text-slate-400 font-bold mb-1">TANGGAL LAHIR</span><div id="bioTgl" class="font-bold text-slate-700"></div></div>
+                    <div class="bg-slate-50 p-4 rounded-xl border border-slate-100"><span class="block text-xs text-slate-400 font-bold mb-1">NAMA IBU KANDUNG</span><div id="bioIbu" class="font-bold text-slate-700">********</div></div>
+                    <div class="bg-slate-50 p-4 rounded-xl border border-slate-100"><span class="block text-xs text-slate-400 font-bold mb-1">STATUS UJIAN</span><div id="bioStatus" class="font-bold text-blue-600">Belum Ujian</div></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 3. VIEW: PETUNJUK KAMERA & PROCTORING -->
+        <div id="view-camera-setup" class="hidden max-w-3xl mx-auto py-10 px-4">
+            <div class="bg-white p-8 rounded-2xl shadow-sm border border-slate-200 text-center">
+                <h2 class="text-xl font-bold text-slate-800 mb-2">Pemeriksaan & Pengawasan Kamera</h2>
+                <p class="text-xs text-slate-500 mb-6">Pastikan wajah Anda terlihat jelas pada kotak kamera di bawah ini</p>
+                
+                <div class="w-72 h-52 bg-black rounded-xl overflow-hidden border-4 border-slate-200 mx-auto mb-6 relative flex items-center justify-center shadow-inner">
+                    <video id="setup-webcam-video" autoplay playsinline muted class="w-full h-full object-cover transform -scale-x-100 hidden"></video>
+                    <div id="setup-camera-placeholder" class="text-slate-400 flex flex-col items-center p-4">
+                        <svg class="w-12 h-12 mb-2 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+                        <span class="text-xs">Meminta Akses Kamera...</span>
+                    </div>
+                </div>
+
+                <div class="bg-amber-50 border border-amber-200 text-amber-800 p-4 rounded-xl text-xs text-left mb-6 leading-relaxed">
+                    <strong>Peringatan Pengawasan Ujian:</strong>
+                    <ul class="list-disc list-inside mt-1 space-y-1">
+                        <li>Sistem akan merekam dan mengambil foto snapshot wajah Anda secara berkala.</li>
+                        <li>Dilarang melakukan tangkap layar (screenshot) atau membuka tab lain selama ujian.</li>
+                    </ul>
+                </div>
+
+                <button id="btn-camera-next" onclick="showView('view-instructions')" disabled class="bg-blue-600 text-white font-bold px-8 py-3 rounded-xl shadow opacity-50 cursor-not-allowed transition">Lanjut ke Petunjuk Teknis →</button>
+            </div>
+        </div>
+
+        <!-- 4. VIEW: PETUNJUK TEKNIS UJIAN -->
+        <div id="view-instructions" class="hidden max-w-3xl mx-auto py-10 px-4">
+            <div class="bg-white p-8 rounded-2xl shadow-sm border border-slate-200">
+                <h2 class="text-xl font-bold text-slate-800 mb-1">Petunjuk Teknis Pengerjaan Ujian</h2>
+                <p class="text-xs text-slate-500 mb-6">Seksi: <span id="instruction-section-name" class="font-bold text-blue-600">Pemanasan</span></p>
+                
+                <div class="text-sm text-slate-700 leading-relaxed space-y-3 bg-slate-50 p-6 rounded-xl border border-slate-100 mb-8">
+                    <p>1. Setiap soal memiliki <strong>sisa waktu pengerjaan</strong> yang tampil di bagian atas layar.</p>
+                    <p>2. Jika waktu pada soal habis, sistem akan otomatis berpindah ke soal berikutnya.</p>
+                    <p>3. Pilihlah salah satu dari empat pilihan jawaban (A, B, C, atau D).</p>
+                    <p>4. Anda <strong>tidak dapat kembali</strong> ke soal yang sudah dilewati.</p>
+                </div>
+
+                <div class="text-center">
+                    <button onclick="startActualExam()" class="bg-blue-600 hover:bg-blue-700 text-white font-extrabold px-10 py-3.5 rounded-xl shadow-lg transition">Mulai Sekarang</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 5. VIEW: EXAM ENGINE (SPLIT LAYOUT SOAL & KONTEKS) -->
+        <div id="view-exam" class="hidden split-height flex flex-col md:flex-row w-full bg-white">
+            <!-- Kiri: Konteks / Bacaan / Simulasi Visual -->
+            <div class="w-full md:w-1/2 p-6 md:p-8 overflow-y-auto border-r border-slate-200 bg-slate-50/50 flex flex-col justify-center">
+                <div class="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+                    <span class="text-xs font-bold text-amber-600 bg-amber-50 px-2.5 py-1 rounded-full border border-amber-200 uppercase tracking-wider mb-3 inline-block">Konteks Bacaan</span>
+                    <div id="exam-context-body" class="text-slate-700 leading-relaxed font-serif text-base">
+                        <!-- Content Injected via JS -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Kanan: Pertanyaan & Opsi Jawaban -->
+            <div class="w-full md:w-1/2 p-6 md:p-10 overflow-y-auto flex flex-col justify-between">
+                <div>
+                    <div class="flex justify-between items-center mb-6">
+                        <span class="text-xs font-bold text-slate-500 bg-slate-100 px-3 py-1 rounded-full border">Soal No. <span id="exam-q-index">1</span> / <span id="exam-q-total">3</span></span>
+                    </div>
+
+                    <h3 id="exam-q-text" class="text-lg font-bold text-slate-800 mb-6 leading-snug">Pertanyaan Soal...</h3>
+
+                    <div id="exam-q-options" class="space-y-3">
+                        <!-- Options Injected via JS -->
+                    </div>
+                </div>
+
+                <div class="pt-8 border-t border-slate-100 flex justify-end">
+                    <button onclick="submitCurrentAnswer()" class="bg-blue-600 hover:bg-blue-700 text-white font-bold px-8 py-3 rounded-xl shadow transition">Simpan & Lanjut →</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 6. VIEW: INTERMISSION (JEDA ANTAR SEKSI) -->
+        <div id="view-intermission" class="hidden max-w-2xl mx-auto py-20 px-4 text-center">
+            <div class="bg-white p-10 rounded-2xl shadow-sm border border-slate-200">
+                <div class="w-16 h-16 bg-amber-100 text-amber-600 rounded-full flex items-center justify-center mx-auto mb-4 font-bold text-2xl">✓</div>
+                <h2 class="text-2xl font-bold text-slate-800 mb-2">Seksi Pemanasan Selesai</h2>
+                <p class="text-sm text-slate-500 mb-8">Anda telah menyelesaikan soal pemanasan. Selanjutnya Anda akan memasuki Seksi Ujian Utama.</p>
+                <button onclick="proceedToMainExam()" class="bg-blue-600 hover:bg-blue-700 text-white font-extrabold px-8 py-3 rounded-xl shadow">Lanjut Ke Ujian Utama</button>
+            </div>
+        </div>
+
+        <!-- 7. VIEW: HASIL UJIAN -->
+        <div id="view-result" class="hidden max-w-xl mx-auto py-12 px-4 text-center">
+            <div class="bg-white p-10 rounded-2xl shadow-sm border border-slate-200">
+                <div class="w-20 h-20 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-4 font-bold text-3xl">🏆</div>
+                <h2 class="text-2xl font-bold text-slate-800 mb-1">Ujian Telah Selesai!</h2>
+                <p class="text-xs text-slate-500 mb-8">Hasil ujian Anda telah dikirim dan tersimpan di sistem cloud.</p>
+
+                <div class="bg-slate-50 p-6 rounded-2xl border border-slate-200 mb-8">
+                    <span class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">NILAI AKHIR UJIAN</span>
+                    <div id="result-score" class="text-6xl font-extrabold text-blue-600">0</div>
+                    <p class="text-xs text-slate-500 mt-2">Benar <span id="result-correct">0</span> dari <span id="result-total">15</span> Soal Utama</p>
+                </div>
+
+                <button onclick="handleLogout()" class="bg-slate-800 hover:bg-slate-900 text-white font-bold px-8 py-3 rounded-xl shadow transition">Keluar</button>
+            </div>
+        </div>
+
+        <!-- 8. VIEW: PORTAL ADMINISTRATOR LENGKAP -->
+        <div id="view-admin" class="hidden p-6 max-w-7xl mx-auto">
+            <div class="flex justify-between items-center mb-6">
+                <div>
+                    <h2 class="text-2xl font-bold text-slate-800">Portal Pengawas Administrator</h2>
+                    <p class="text-xs text-slate-500">Kelola soal, durasi, pemantauan peserta, dan rekaman pengawasan</p>
+                </div>
+                <button onclick="handleLogout()" class="bg-red-50 text-red-600 hover:bg-red-100 font-bold px-4 py-2 rounded-lg text-xs transition">Logout Admin</button>
+            </div>
+
+            <!-- TAB MENU ADMIN -->
+            <div class="flex gap-2 border-b border-slate-200 mb-6">
+                <button onclick="switchAdminTab('peserta')" id="admin-tab-peserta" class="px-4 py-2.5 font-bold text-sm text-blue-600 border-b-2 border-blue-600">Data Peserta & Nilai</button>
+                <button onclick="switchAdminTab('kamera')" id="admin-tab-kamera" class="px-4 py-2.5 font-medium text-sm text-slate-500 hover:text-slate-700">Foto Pengawas (Proctoring)</button>
+            </div>
+
+            <!-- ADMIN TAB 1: DATA PESERTA -->
+            <div id="admin-sec-peserta" class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                <h3 class="font-bold text-slate-800 mb-4 text-sm uppercase">Rekapitulasi Peserta Ujian</h3>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-sm">
+                        <thead class="bg-slate-50 text-slate-500 uppercase text-xs">
+                            <tr>
+                                <th class="p-3 border-b">Username / ID</th>
+                                <th class="p-3 border-b">Nama Peserta</th>
+                                <th class="p-3 border-b">Tgl Lahir</th>
+                                <th class="p-3 border-b">Status</th>
+                                <th class="p-3 border-b">Nilai Ujian</th>
+                            </tr>
+                        </thead>
+                        <tbody id="admin-table-peserta">
+                            <!-- Rows injected JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- ADMIN TAB 2: PROCTORING KAMERA -->
+            <div id="admin-sec-kamera" class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 hidden">
+                <h3 class="font-bold text-slate-800 mb-4 text-sm uppercase">Galeri Foto Tangkapan Kamera Pengawas</h3>
+                <div id="admin-gallery-snapshots" class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <!-- Images injected JS -->
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- HIDDEN CANVAS UNTUK SNAPSHOT KAMERA -->
+    <canvas id="proctoring-canvas" class="hidden" width="320" height="240"></canvas>
+
+    <!-- CORE LOGIC APPLICATION (JS) -->
+    <script>
+        // --- DATA STATE APLIKASI ---
+        const DB_KEY = 'cbt_full_participants_v3';
+        
+        let state = {
+            participants: JSON.parse(localStorage.getItem(DB_KEY) || '[]'),
+            currentUser: null,
+            examMode: 'pemanasan', // 'pemanasan' | 'utama'
+            qIndex: 0,
+            answers: [],
+            examTimer: null,
+            timeRemaining: 0,
+            webcamStream: null,
+            proctorInterval: null
+        };
+
+        // Bank Soal Lengkap
+        const bankSoal = {
+            pemanasan: [
+                { id: 'p1', durasi: 60, konteks: "Pemanasan Soal 1: Pemahaman Konsep Ujian CBT.", teks: "Manakah pernyataan yang paling tepat mengenai ujian CBT Adaptif?", opsi: ["Soal menyesuaikan tingkat kemampuan", "Soal dapat diulang kembali", "Waktu bersifat fleksibel tanpa batas", "Ujian dilakukan secara lisan"], jawaban: 0 },
+                { id: 'p2', durasi: 60, konteks: "Pemanasan Soal 2: Tata Tertib Pengawasan.", teks: "Apa konsekuensi jika peserta menutupi kamera saat ujian berlangsung?", opsi: ["Mendapatkan nilai tambahan", "Menerima peringatan / diskualifikasi", "Waktu ujian bertambah", "Soal otomatis berubah"], jawaban: 1 },
+                { id: 'p3', durasi: 60, konteks: "Pemanasan Soal 3: Penggunaan Waktu.", teks: "Apa yang terjadi jika durasi sisa waktu pada satu soal telah mencapai 00:00?", opsi: ["Sistem berhenti secara permanen", "Sistem otomatis berpindah ke soal berikutnya", "Nilai peserta dikurangi 50%", "Peserta dikeluarkan dari login"], jawaban: 1 }
+            ],
+            utama: Array.from({ length: 15 }, (_, i) => ({
+                id: `u${i+1}`,
+                durasi: 120, // 2 menit per soal
+                konteks: `Teks Konteks Bacaan Ujian Utama Nomor ${i+1}. Bacalah narasi ini dengan saksama sebelum memilih jawaban yang paling akurat.`,
+                teks: `Pertanyaan Ujian Utama Nomor ${i+1}: Analisislah opsi jawaban di bawah ini berdasarkan pemahaman teks konteks di sebelah kiri.`,
+                opsi: [`Pilihan Alternatif A (${i+1})`, `Pilihan Alternatif B (${i+1})`, `Pilihan Alternatif C (${i+1})`, `Pilihan Alternatif D (${i+1})`],
+                jawaban: (i % 4)
+            }))
+        };
+
+        // --- NAVIGATION ENGINE ---
+        function showView(viewId) {
+            document.querySelectorAll('main > div').forEach(div => div.classList.add('hidden'));
+            document.getElementById(viewId).classList.remove('hidden');
+        }
+
+        function switchAuthTab(tab) {
+            if(tab === 'login') {
+                document.getElementById('form-login-container').classList.remove('hidden');
+                document.getElementById('form-register-container').classList.add('hidden');
+                document.getElementById('tab-login').className = "flex-1 py-4 text-center font-bold text-blue-600 border-b-2 border-blue-600 bg-white";
+                document.getElementById('tab-register').className = "flex-1 py-4 text-center font-medium text-slate-500 hover:bg-slate-100";
+            } else {
+                document.getElementById('form-login-container').classList.add('hidden');
+                document.getElementById('form-register-container').classList.remove('hidden');
+                document.getElementById('tab-register').className = "flex-1 py-4 text-center font-bold text-blue-600 border-b-2 border-blue-600 bg-white";
+                document.getElementById('tab-login').className = "flex-1 py-4 text-center font-medium text-slate-500 hover:bg-slate-100";
+            }
+        }
+
+        function openAdminModal() { document.getElementById('admin-modal').classList.remove('hidden'); }
+        function closeAdminModal() { document.getElementById('admin-modal').classList.add('hidden'); }
+
+        // --- AUTHENTICATION & PARTICIPANTS ---
+        function handleParticipantRegister(e) {
+            e.preventDefault();
+            const fullName = document.getElementById('regFullName').value.trim();
+            const birthDate = document.getElementById('regBirthDate').value;
+            const motherName = document.getElementById('regMotherName').value.trim();
+
+            const p = birthDate.split('-');
+            const username = `${p[2]}${p[1]}${p[0]}`; // DDMMYYYY
+            const password = motherName.toLowerCase().replace(/\s+/g, '');
+
+            if (state.participants.find(x => x.username === username)) {
+                alert(`Akun dengan tanggal lahir ini sudah terdaftar! Username Anda: ${username}`);
+                switchAuthTab('login');
+                document.getElementById('loginUsername').value = username;
+                return;
+            }
+
+            const newParticipant = {
+                username, password, fullName, birthDate, motherName,
+                status: 'Belum Ujian', score: null, snapshots: []
+            };
+
+            state.participants.push(newParticipant);
+            localStorage.setItem(DB_KEY, JSON.stringify(state.participants));
+
+            // Simpan Cloud Firebase
+            if(window.savePesertaToCloud) window.savePesertaToCloud(newParticipant);
+
+            alert(`Pendaftaran Berhasil!\n\nUsername: ${username}\nPassword: ${password}`);
+            switchAuthTab('login');
+            document.getElementById('loginUsername').value = username;
+            document.getElementById('loginPassword').value = password;
+        }
+
+        function handleParticipantLogin(e) {
+            e.preventDefault();
+            const u = document.getElementById('loginUsername').value.trim();
+            const p = document.getElementById('loginPassword').value.trim().toLowerCase();
+
+            const user = state.participants.find(x => x.username === u && x.password === p);
+            if(user) {
+                state.currentUser = { role: 'peserta', data: user };
+                updateHeaderUI();
+                renderDashboard();
+                showView('view-dashboard');
+            } else {
+                alert("Username (DDMMYYYY) atau Password (Nama Ibu) tidak sesuai!");
+            }
+        }
+
+        function handleAdminLogin(e) {
+            e.preventDefault();
+            const u = document.getElementById('adminUser').value.trim();
+            const p = document.getElementById('adminPass').value.trim();
+
+            if (u === 'lebahganteng' && p === 'manusia123') {
+                closeAdminModal();
+                state.currentUser = { role: 'admin', data: { fullName: 'Administrator' } };
+                updateHeaderUI();
+                renderAdminData();
+                showView('view-admin');
+            } else {
+                alert("Kredensial Pengawas Admin Salah!");
+            }
+        }
+
+        function handleLogout() {
+            stopWebcamProctoring();
+            state.currentUser = null;
+            document.getElementById('exam-header-widget').classList.add('hidden');
+            updateHeaderUI();
+            showView('view-auth');
+        }
+
+        function updateHeaderUI() {
+            if(state.currentUser) {
+                document.getElementById('header-user-info').classList.remove('hidden');
+                document.getElementById('user-display-name').textContent = state.currentUser.data.fullName;
+                document.getElementById('user-display-role').textContent = state.currentUser.role === 'admin' ? 'Administrator' : 'Peserta';
+                document.getElementById('user-avatar').textContent = state.currentUser.data.fullName.charAt(0).toUpperCase();
+            } else {
+                document.getElementById('header-user-info').classList.add('hidden');
+            }
+        }
+
+        function renderDashboard() {
+            const d = state.currentUser.data;
+            document.getElementById('dashName').textContent = d.fullName;
+            document.getElementById('dashUsername').textContent = d.username;
+            document.getElementById('bioNama').textContent = d.fullName;
+            document.getElementById('bioTgl').textContent = d.birthDate;
+            document.getElementById('bioStatus').textContent = d.status;
+        }
+
+        // --- CAMERA & PROCTORING ENGINE ---
+        async function startExamFlow() {
+            if(state.currentUser.data.status === 'Selesai') {
+                alert("Anda sudah menyelesaikan sesi ujian!"); return;
+            }
+            showView('view-camera-setup');
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                state.webcamStream = stream;
+                
+                const vidSetup = document.getElementById('setup-webcam-video');
+                vidSetup.srcObject = stream;
+                vidSetup.classList.remove('hidden');
+                document.getElementById('setup-camera-placeholder').classList.add('hidden');
+
+                const btn = document.getElementById('btn-camera-next');
+                btn.disabled = false;
+                btn.classList.remove('opacity-50', 'cursor-not-allowed');
+            } catch (e) {
+                alert("Gagal mengakses kamera webcam. Kamera wajib aktif!");
+                console.error(e);
+            }
+        }
+
+        function startWebcamProctoring() {
+            // Sambungkan stream ke header widget live view
+            const headerVid = document.getElementById('header-webcam-preview');
+            headerVid.srcObject = state.webcamStream;
+            document.getElementById('exam-header-widget').classList.remove('hidden');
+
+            // Set interval penangkapan snapshot berkala (setiap 20 detik)
+            state.proctorInterval = setInterval(() => {
+                captureSnapshot();
+            }, 20000);
+        }
+
+        function captureSnapshot() {
+            if(!state.webcamStream) return;
+            const canvas = document.getElementById('proctoring-canvas');
+            const context = canvas.getContext('2d');
+            const video = document.getElementById('header-webcam-preview');
+            
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.6);
+
+            // Simpan snapshot ke peserta
+            if(state.currentUser && state.currentUser.role === 'peserta') {
+                state.currentUser.data.snapshots.push({ timestamp: new Date().toISOString(), image: dataUrl });
+                localStorage.setItem(DB_KEY, JSON.stringify(state.participants));
+                if(window.saveSnapshotToCloud) window.saveSnapshotToCloud(state.currentUser.data.username, dataUrl);
+            }
+        }
+
+        function stopWebcamProctoring() {
+            if(state.proctorInterval) clearInterval(state.proctorInterval);
+            if(state.webcamStream) {
+                state.webcamStream.getTracks().forEach(track => track.stop());
+                state.webcamStream = null;
+            }
+            clearInterval(state.examTimer);
+        }
+
+        // --- EXAM ENGINE & TIMERS ---
+        function startActualExam() {
+            startWebcamProctoring();
+            state.qIndex = 0;
+            state.answers = [];
+            showView('view-exam');
+            renderQuestion();
+        }
+
+        function renderQuestion() {
+            const list = bankSoal[state.examMode];
+            if(state.qIndex >= list.length) {
+                finishExamSection();
+                return;
+            }
+
+            const q = list[state.qIndex];
+            document.getElementById('exam-q-index').textContent = state.qIndex + 1;
+            document.getElementById('exam-q-total').textContent = list.length;
+            document.getElementById('exam-context-body').textContent = q.konteks;
+            document.getElementById('exam-q-text').textContent = q.teks;
+
+            const optBox = document.getElementById('exam-q-options');
+            optBox.innerHTML = '';
+            const labels = ['A', 'B', 'C', 'D'];
+
+            q.opsi.forEach((opt, idx) => {
+                const label = document.createElement('label');
+                label.className = "flex items-center gap-3 p-4 border rounded-xl hover:bg-slate-50 cursor-pointer transition border-slate-200";
+                label.innerHTML = `
+                    <input type="radio" name="opt_choice" value="${idx}" class="w-4 h-4 text-blue-600 focus:ring-blue-500">
+                    <span class="font-bold text-slate-400 w-5">${labels[idx]}.</span>
+                    <span class="text-sm font-medium text-slate-700">${opt}</span>
+                `;
+                optBox.appendChild(label);
+            });
+
+            // Mulai Timer Per Soal
+            startQuestionTimer(q.durasi);
+        }
+
+        function startQuestionTimer(seconds) {
+            clearInterval(state.examTimer);
+            state.timeRemaining = seconds;
+            updateTimerUI();
+
+            state.examTimer = setInterval(() => {
+                state.timeRemaining--;
+                updateTimerUI();
+                if(state.timeRemaining <= 0) {
+                    clearInterval(state.examTimer);
+                    submitCurrentAnswer(true); // Auto-submit waktu habis
+                }
+            }, 1000);
+        }
+
+        function updateTimerUI() {
+            const m = Math.floor(state.timeRemaining / 60).toString().padStart(2, '0');
+            const s = (state.timeRemaining % 60).toString().padStart(2, '0');
+            document.getElementById('timer-display').textContent = `${m}:${s}`;
+        }
+
+        function submitCurrentAnswer(isTimeout = false) {
+            const selected = document.querySelector('input[name="opt_choice"]:checked');
+            if(!selected && !isTimeout) {
+                alert("Pilih salah satu jawaban sebelum melanjutkan!"); return;
+            }
+
+            const list = bankSoal[state.examMode];
+            const q = list[state.qIndex];
+            const ansVal = selected ? parseInt(selected.value) : -1;
+
+            if(state.examMode === 'utama') {
+                state.answers.push({ qId: q.id, ans: ansVal, isCorrect: ansVal === q.jawaban });
+            }
+
+            state.qIndex++;
+            renderQuestion();
+        }
+
+        function finishExamSection() {
+            clearInterval(state.examTimer);
+            if(state.examMode === 'pemanasan') {
+                document.getElementById('exam-header-widget').classList.add('hidden');
+                showView('view-intermission');
+            } else {
+                calculateFinalResult();
+            }
+        }
+
+        function proceedToMainExam() {
+            state.examMode = 'utama';
+            document.getElementById('instruction-section-name').textContent = 'Ujian Utama';
+            showView('view-instructions');
+        }
+
+        function calculateFinalResult() {
+            stopWebcamProctoring();
+            document.getElementById('exam-header-widget').classList.add('hidden');
+
+            const correct = state.answers.filter(x => x.isCorrect).length;
+            const total = bankSoal.utama.length;
+            const score = Math.round((correct / total) * 100);
+
+            document.getElementById('result-score').textContent = score;
+            document.getElementById('result-correct').textContent = correct;
+            document.getElementById('result-total').textContent = total;
+
+            // Simpan Hasil
+            const userRef = state.currentUser.data;
+            userRef.status = 'Selesai';
+            userRef.score = score;
+
+            localStorage.setItem(DB_KEY, JSON.stringify(state.participants));
+
+            if(window.saveHasilToCloud) {
+                window.saveHasilToCloud(userRef.username, {
+                    fullName: userRef.fullName,
+                    score: score,
+                    correctCount: correct,
+                    timestamp: new Date().toISOString()
+                });
+            }
+
+            showView('view-result');
+        }
+
+        // --- ADMIN PORTAL LOGIC ---
+        function switchAdminTab(tab) {
+            if(tab === 'peserta') {
+                document.getElementById('admin-sec-peserta').classList.remove('hidden');
+                document.getElementById('admin-sec-kamera').classList.add('hidden');
+                document.getElementById('admin-tab-peserta').className = "px-4 py-2.5 font-bold text-sm text-blue-600 border-b-2 border-blue-600";
+                document.getElementById('admin-tab-kamera').className = "px-4 py-2.5 font-medium text-sm text-slate-500 hover:text-slate-700";
+            } else {
+                document.getElementById('admin-sec-peserta').classList.add('hidden');
+                document.getElementById('admin-sec-kamera').classList.remove('hidden');
+                document.getElementById('admin-tab-kamera').className = "px-4 py-2.5 font-bold text-sm text-blue-600 border-b-2 border-blue-600";
+                document.getElementById('admin-tab-peserta').className = "px-4 py-2.5 font-medium text-sm text-slate-500 hover:text-slate-700";
+            }
+        }
+
+        function renderAdminData() {
+            const tbody = document.getElementById('admin-table-peserta');
+            tbody.innerHTML = '';
+
+            const gallery = document.getElementById('admin-gallery-snapshots');
+            gallery.innerHTML = '';
+
+            state.participants.forEach(p => {
+                // Render Table Row
+                const tr = document.createElement('tr');
+                tr.className = "border-b hover:bg-slate-50";
+                tr.innerHTML = `
+                    <td class="p-3 font-mono font-bold">${p.username}</td>
+                    <td class="p-3 font-medium text-slate-800">${p.fullName}</td>
+                    <td class="p-3 text-slate-500">${p.birthDate}</td>
+                    <td class="p-3"><span class="px-2.5 py-1 rounded-full text-xs font-bold ${p.status==='Selesai'?'bg-green-100 text-green-700':'bg-amber-100 text-amber-700'}">${p.status}</span></td>
+                    <td class="p-3 font-bold text-blue-600">${p.score !== null ? p.score : '-'}</td>
+                `;
+                tbody.appendChild(tr);
+
+                // Render Proctoring Photos
+                if(p.snapshots && p.snapshots.length > 0) {
+                    p.snapshots.forEach(s => {
+                        const card = document.createElement('div');
+                        card.className = "bg-slate-50 border rounded-xl overflow-hidden p-2 text-center";
+                        card.innerHTML = `
+                            <img src="${s.image}" class="w-full h-32 object-cover rounded mb-2">
+                            <span class="block text-[10px] font-bold text-slate-600">${p.fullName}</span>
+                            <span class="block text-[9px] text-slate-400">${new Date(s.timestamp).toLocaleTimeString()}</span>
+                        `;
+                        gallery.appendChild(card);
+                    });
+                }
+            });
+        }
+
+        // STARTUP INIT
+        showView('view-auth');
+    </script>
+</body>
+</html><!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Simulasi Singkat CBT Adaptif</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
