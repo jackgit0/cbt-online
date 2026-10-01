@@ -3,1749 +3,611 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Simulasi CBT Adaptif - Platform Ujian Berbasis Komputer</title>
-    <!-- Tailwind CSS CDN -->
+    <title>Simulasi Singkat CBT Adaptif</title>
+    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-        tailwind.config = {
-            theme: {
-                extend: {
-                    colors: {
-                        brand: {
-                            50: '#eff6ff',
-                            100: '#dbeafe',
-                            500: '#3b82f6',
-                            600: '#2563eb',
-                            700: '#1d4ed8',
-                        }
-                    },
-                    fontFamily: {
-                        sans: ['Inter', 'sans-serif'],
-                    }
-                }
-            }
-        }
-    </script>
-    <!-- Google Font Inter -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <!-- FontAwesome for Icons -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    
     <style>
-        body {
-            font-family: 'Inter', sans-serif;
-            background-color: #f1f5f9;
-        }
-        .rec-dot {
-            animation: pulse 1.5s infinite;
-        }
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.2; }
-        }
-        /* Custom scrollbar */
-        ::-webkit-scrollbar {
-            width: 6px;
-            height: 6px;
-        }
-        ::-webkit-scrollbar-track {
-            background: #f1f5f9;
-        }
-        ::-webkit-scrollbar-thumb {
-            background: #cbd5e1;
-            border-radius: 4px;
-        }
-        ::-webkit-scrollbar-thumb:hover {
-            background: #94a3b8;
-        }
+        /* Custom Scrollbar & Animations */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        .blink { animation: blinker 1.5s linear infinite; }
+        @keyframes blinker { 50% { opacity: 0; } }
+        .split-layout { height: calc(100vh - 70px); }
     </style>
 </head>
-<body class="min-h-screen text-slate-800 flex flex-col bg-slate-100">
-    <!-- Firebase SDK Modular -->
-<script type="module">
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-  import { getFirestore, doc, setDoc, collection, addDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
-  import { getStorage, ref, uploadString, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js";
+<body class="bg-slate-100 font-sans text-slate-800 antialiased h-screen overflow-hidden flex flex-col">
 
-  // Tempel firebaseConfig yang Anda dapat dari Langkah 1 di sini:
-  const firebaseConfig = {
-  apiKey: "AIzaSyCg7yHvA9T7dohEazVaPu_XK51KrU1Lhek",
-  authDomain: "jack-cbt-app.firebaseapp.com",
-  projectId: "jack-cbt-app",
-  storageBucket: "jack-cbt-app.firebasestorage.app",
-  messagingSenderId: "1084710133948",
-  appId: "1:1084710133948:web:402d64d9a187c578a270b9"
-  };
+    <!-- FIREBASE SETUP MODULE -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { getFirestore, doc, setDoc, addDoc, collection, getDocs, updateDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+        
+        // Konfigurasi Firebase dari User
+        const firebaseConfig = {
+            apiKey: "AIzaSyCg7yHvA9T7dohEazVaPu_XK51KrU1Lhek",
+            authDomain: "jack-cbt-app.firebaseapp.com",
+            projectId: "jack-cbt-app",
+            storageBucket: "jack-cbt-app.firebasestorage.app",
+            messagingSenderId: "1084710133948",
+            appId: "1:1084710133948:web:402d64d9a187c578a270b9"
+        };
 
-  // Inisialisasi Firebase
-  const app = initializeApp(firebaseConfig);
-  const db = getFirestore(app);
-  const storage = getStorage(app);
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
 
-  // Buat fungsi global agar bisa dipanggil dari kode JavaScript CBT Anda
-  window.db = db;
-  window.storage = storage;
+        // Ekspor ke window agar bisa dipakai fungsi reguler
+        window.savePesertaToCloud = async function(peserta) {
+            try { await setDoc(doc(db, "peserta", peserta.username), peserta); } 
+            catch (e) { console.error("Error simpan peserta:", e); }
+        };
+        window.saveHasilToCloud = async function(username, dataHasil) {
+            try { 
+                await setDoc(doc(db, "hasil_ujian", username + '_' + Date.now()), dataHasil);
+                await updateDoc(doc(db, "peserta", username), { status: "Selesai", score: dataHasil.score });
+            } catch (e) { console.error("Error simpan hasil:", e); }
+        };
+    </script>
 
-  // Fungsi menyimpan data peserta ke Cloud Firestore
-  window.savePesertaToCloud = async function(pesertaData) {
-    try {
-      await setDoc(doc(db, "peserta", pesertaData.username), pesertaData);
-      console.log("Data peserta tersimpan di Google Cloud!");
-    } catch (e) {
-      console.error("Gagal simpan ke cloud:", e);
-    }
-  };
-
-  // Fungsi mengunggah snapshot kamera pengawas ke Cloud Storage
-  window.uploadSnapToCloud = async function(username, base64Image) {
-    try {
-      const storageRef = ref(storage, `monitoring/${username}_${Date.now()}.jpg`);
-      await uploadString(storageRef, base64Image, 'data_url');
-      return await getDownloadURL(storageRef);
-    } catch (e) {
-      console.error("Gagal upload foto kamera:", e);
-    }
-  };
-</script>
-
-    <!-- HEADER ATAS (PERSIS REFERENSI) -->
-    <header id="mainHeader" class="bg-white shadow-sm sticky top-0 z-40 px-4 py-2.5 flex justify-between items-center transition-all duration-300">
-        <!-- Logo & Title -->
-        <div class="flex items-center space-x-3">
-            <div class="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center text-white font-bold shadow-md">
-                <!-- Tut Wuri Handayani / Edu Icon -->
-                <svg class="w-6 h-6 fill-current" viewBox="0 0 24 24">
-                    <path d="M12 3L1 9l11 6 9-4.91V17h2V9L12 3zm0 13.5L4.27 12 12 7.78 19.73 12 12 16.5zM6 14.5v3.5c0 1.66 2.69 3 6 3s6-1.34 6-3v-3.5c-1.55 1.1-3.89 1.75-6 1.75s-4.45-.65-6-1.75z"/>
-                </svg>
+    <!-- HEADER GLOBAL -->
+    <header class="bg-white shadow-sm h-[70px] px-6 flex items-center justify-between shrink-0 z-50 relative">
+        <div class="flex items-center gap-3">
+            <!-- Ikon Tut Wuri Handayani (Simulasi) -->
+            <div class="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 font-bold border-2 border-blue-500">
+                <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M12 3L1 9l4 2.18v6L12 21l7-3.82v-6l2-1.09V17h2V9L12 3zm6.82 6L12 12.72 5.18 9 12 5.28 18.82 9zM17 15.99l-5 2.73-5-2.73v-3.72L12 15l5-2.73v3.72z"/></svg>
             </div>
             <div>
-                <h1 class="font-bold text-slate-800 text-base md:text-lg leading-tight">Simulasi CBT Adaptif</h1>
-                <p id="headerSubtitle" class="text-xs text-slate-500">Sistem Ujian Online Terintegrasi</p>
+                <h1 class="text-lg font-bold text-gray-800 leading-tight">Simulasi Singkat UKBI Adaptif</h1>
+                <p class="text-xs text-gray-500">Computer-Based Test</p>
             </div>
         </div>
 
-        <!-- Timer & Mini Live Camera Feed (Aktif saat Ujian) -->
-        <div id="examHeaderCenter" class="hidden flex items-center space-x-4">
-            <!-- Timer Countdown -->
-            <div class="bg-amber-50 border border-amber-200 px-3 py-1 rounded-lg flex items-center space-x-2">
-                <i class="fa-regular fa-clock text-amber-600 animate-pulse"></i>
-                <span id="examTimerDisplay" class="font-mono font-bold text-lg text-amber-700">00:00</span>
+        <!-- EXAM MONITORING UI (TIMER & WEBCAM) - Muncul saat ujian -->
+        <div id="exam-monitoring-ui" class="hidden absolute left-1/2 -translate-x-1/2 flex items-center gap-6 bg-slate-50 px-4 py-1.5 rounded-full border border-slate-200 shadow-sm">
+            <!-- Timer Sisa Waktu -->
+            <div class="flex items-center gap-2 text-red-600 font-bold text-lg font-mono">
+                <svg class="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                <span id="timer-display">00:00</span>
             </div>
-
-            <!-- Mini Live Webcam Feed with REC -->
-            <div class="relative flex items-center bg-slate-900 rounded overflow-hidden border border-slate-300 shadow-sm" style="width: 54px; height: 38px;">
-                <video id="miniWebcamFeed" class="w-full h-full object-cover" autoplay playsinline muted></video>
-                <div class="absolute inset-0 bg-black/10 pointer-events-none"></div>
-                <div class="absolute top-1 right-1 flex items-center bg-black/60 backdrop-blur-xs px-1 rounded text-[9px] font-bold text-white">
-                    <span class="w-1.5 h-1.5 rounded-full bg-red-500 rec-dot mr-1"></span>
-                    REC
+            <div class="h-6 w-px bg-slate-300"></div>
+            <!-- Live Webcam View -->
+            <div class="flex items-center gap-2">
+                <div class="relative w-12 h-12 bg-black rounded overflow-hidden border-2 border-slate-300">
+                    <video id="live-webcam-header" autoplay playsinline muted class="w-full h-full object-cover transform -scale-x-100"></video>
+                </div>
+                <div class="flex items-center text-red-600 text-xs font-bold gap-1 blink">
+                    <div class="w-2 h-2 rounded-full bg-red-600"></div> REC
                 </div>
             </div>
         </div>
 
-        <!-- User Profile Avatar & Logout -->
-        <div id="headerUserSection" class="flex items-center space-x-3">
-            <span id="headerUserName" class="hidden md:inline-block text-sm font-medium text-slate-700">Tamu</span>
-            <div id="userAvatar" class="w-9 h-9 rounded-full bg-blue-600 text-white font-semibold flex items-center justify-center text-sm shadow cursor-pointer hover:bg-blue-700 transition" onclick="toggleUserMenu()">
-                ?
-            </div>
-            <button id="headerLogoutBtn" onclick="handleLogout()" class="hidden text-xs text-red-600 hover:text-red-700 font-medium border border-red-200 bg-red-50 hover:bg-red-100 px-2.5 py-1 rounded-md transition">
-                <i class="fa-solid fa-right-from-bracket mr-1"></i>Keluar
-            </button>
+        <!-- USER AVATAR / LOGOUT -->
+        <div id="header-user-ui" class="hidden flex items-center gap-4">
+            <span id="header-username" class="font-medium text-sm text-gray-700">User</span>
+            <div id="header-avatar" class="w-10 h-10 bg-blue-500 text-white rounded-full flex items-center justify-center font-bold text-lg">U</div>
+            <button onclick="handleLogout()" class="text-sm bg-red-50 text-red-600 hover:bg-red-100 px-3 py-1.5 rounded font-medium transition">Keluar</button>
         </div>
     </header>
 
-    <!-- CONTAINER UTAMA SPA -->
-    <main class="flex-grow container mx-auto px-4 py-6 max-w-6xl">
+    <!-- MAIN CONTAINER -->
+    <main class="flex-1 overflow-y-auto relative">
 
-        <!-- VIEW 1: AUTHENTICATION PAGE (LOGIN & REGISTRATION) -->
-        <section id="authPage" class="max-w-md mx-auto bg-white rounded-2xl shadow-xl border border-slate-200/80 overflow-hidden my-8">
-            <!-- Auth Nav Tabs -->
-            <div class="flex border-b border-slate-200 bg-slate-50">
-                <button id="tabParticipantLoginBtn" onclick="switchAuthTab('participant-login')" class="flex-1 py-3 text-sm font-semibold text-blue-600 border-b-2 border-blue-600 bg-white transition">
-                    Login Peserta
-                </button>
-                <button id="tabParticipantRegisterBtn" onclick="switchAuthTab('participant-register')" class="flex-1 py-3 text-sm font-semibold text-slate-500 hover:text-slate-700 border-b-2 border-transparent transition">
-                    Daftar Akun
-                </button>
-                <button id="tabAdminLoginBtn" onclick="switchAuthTab('admin-login')" class="flex-1 py-3 text-sm font-semibold text-slate-500 hover:text-slate-700 border-b-2 border-transparent transition">
-                    Admin CBT
-                </button>
-            </div>
-
-            <div class="p-6">
-                <!-- FORM LOGIN PESERTA -->
-                <form id="participantLoginForm" onsubmit="handleParticipantLogin(event)" class="space-y-4">
-                    <div class="text-center mb-4">
-                        <h2 class="text-xl font-bold text-slate-800">Masuk Akun CBT Peserta</h2>
-                        <p class="text-xs text-slate-500 mt-1">Gunakan Tanggal Lahir (DDMMYYYY) & Password Nama Ibu</p>
-                    </div>
-                    <div>
-                        <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">Username / No. Peserta (DDMMYYYY)</label>
-                        <input type="text" id="loginUsername" required placeholder="Contoh: 30062007" class="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm transition">
-                    </div>
-                    <div>
-                        <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">Password (Nama Ibu Kandung)</label>
-                        <input type="password" id="loginPassword" required placeholder="Huruf kecil semua, contoh: siti" class="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm transition">
-                    </div>
-                    <button type="submit" class="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg shadow-md hover:shadow-lg transition text-sm">
-                        Masuk Kebijakan Ujian
-                    </button>
-                    <p class="text-xs text-slate-500 text-center mt-3">Belum punya akun? <a href="#" onclick="switchAuthTab('participant-register')" class="text-blue-600 font-medium underline">Daftar Akun Baru</a></p>
-                </form>
-
-                <!-- FORM REGISTRASI PESERTA -->
-                <form id="participantRegisterForm" onsubmit="handleParticipantRegister(event)" class="space-y-4 hidden">
-                    <div class="text-center mb-4">
-                        <h2 class="text-xl font-bold text-slate-800">Registrasi Akun CBT</h2>
-                        <p class="text-xs text-slate-500 mt-1">Isi data diri dengan akurat sesuai dokumen resmi</p>
-                    </div>
-                    <div>
-                        <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">Nama Lengkap</label>
-                        <input type="text" id="regFullName" required placeholder="Nama Lengkap Peserta" class="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm transition">
-                    </div>
-                    <div>
-                        <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">Tanggal Lahir</label>
-                        <input type="date" id="regBirthDate" required class="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm transition">
-                    </div>
-                    <div>
-                        <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">Nama Ibu Kandung</label>
-                        <input type="text" id="regMotherName" required placeholder="Contoh: Siti Rahma" class="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm transition">
-                    </div>
-                    <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-800">
-                        <p class="font-semibold mb-1"><i class="fa-solid fa-circle-info mr-1"></i>Format Login Otomatis:</p>
-                        <ul class="list-disc pl-4 space-y-0.5 text-blue-700">
-                            <li>Username: <strong>DDMMYYYY</strong> (cth: 30-06-2007 → 30062007)</li>
-                            <li>Password: <strong>Nama Ibu</strong> (huruf kecil tanpa spasi)</li>
-                        </ul>
-                    </div>
-                    <button type="submit" class="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg shadow-md transition text-sm">
-                        Buat Akun Peserta
-                    </button>
-                </form>
-
-                <!-- FORM LOGIN ADMIN -->
-                <form id="adminLoginForm" onsubmit="handleAdminLogin(event)" class="space-y-4 hidden">
-                    <div class="text-center mb-4">
-                        <h2 class="text-xl font-bold text-slate-800">Login Administrator</h2>
-                        <p class="text-xs text-slate-500 mt-1">Gunakan akun admin untuk mengelola CBT</p>
-                    </div>
-                    <div>
-                        <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">Username Admin</label>
-                        <input type="text" id="adminUsername" required placeholder="Username admin" class="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm transition">
-                    </div>
-                    <div>
-                        <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">Password Admin</label>
-                        <input type="password" id="adminPassword" required placeholder="Password admin" class="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm transition">
-                    </div>
-                    <div class="bg-slate-100 p-2.5 rounded-lg text-xs text-slate-600">
-                        <p><strong>Salim sama Admin</strong></p>
-                        <p>Admin: <code class="bg-slate-200 px-1 py-0.5 rounded text-blue-700">Jacko Tampan</code> | Partner: <code class="bg-slate-200 px-1 py-0.5 rounded text-blue-700">Gemini Pro</code></p>
-                    </div>
-                    <button type="submit" class="w-full py-2.5 bg-slate-800 hover:bg-slate-900 text-white font-semibold rounded-lg shadow-md transition text-sm">
-                        Masuk Dashboard Admin
-                    </button>
-                </form>
-            </div>
-        </section>
-
-        <!-- VIEW 2: DASHBOARD PESERTA -->
-        <section id="participantDashboard" class="hidden space-y-6">
-            <!-- Welcome Banner -->
-            <div class="bg-gradient-to-r from-blue-700 via-blue-600 to-indigo-700 rounded-2xl p-6 text-white shadow-lg flex flex-col md:flex-row justify-between items-center gap-4">
-                <div>
-                    <div class="inline-block px-3 py-1 bg-white/20 backdrop-blur-md rounded-full text-xs font-medium mb-2">
-                        Portal Peserta Ujian
-                    </div>
-                    <h2 class="text-2xl md:text-3xl font-bold">Selamat Datang, <span id="dashNameDisplay">-</span>!</h2>
-                    <p class="text-blue-100 text-sm mt-1">Nomor Peserta CBT: <span id="dashNoPesertaDisplay" class="font-mono font-bold bg-white/20 px-2 py-0.5 rounded">-</span></p>
+        <!-- VIEW: AUTHENTICATION -->
+        <div id="view-auth" class="min-h-full flex items-center justify-center py-10 px-4">
+            <div class="bg-white rounded-xl shadow-lg border border-slate-200 w-full max-w-md overflow-hidden">
+                <div class="flex border-b border-slate-200">
+                    <button onclick="switchAuthTab('login')" id="tab-login" class="flex-1 py-4 text-center font-bold text-blue-600 border-b-2 border-blue-600 bg-blue-50">Login Peserta</button>
+                    <button onclick="switchAuthTab('register')" id="tab-register" class="flex-1 py-4 text-center font-medium text-slate-500 hover:bg-slate-50">Daftar Akun</button>
                 </div>
-                <div class="flex gap-3">
-                    <button onclick="startExamWorkflow()" class="px-5 py-3 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-xl shadow-md hover:shadow-lg transition flex items-center gap-2">
-                        <i class="fa-solid fa-play"></i> Mulai Ujian CBT
-                    </button>
-                </div>
-            </div>
-
-            <!-- Tab Switcher -->
-            <div class="flex border-b border-slate-200 bg-white rounded-t-xl px-4 pt-3">
-                <button id="tabBioBtn" onclick="switchDashTab('biodata')" class="py-2.5 px-4 font-semibold text-sm text-blue-600 border-b-2 border-blue-600 transition">
-                    <i class="fa-regular fa-id-card mr-2"></i>Biodata Akun
-                </button>
-                <button id="tabResultBtn" onclick="switchDashTab('results')" class="py-2.5 px-4 font-semibold text-sm text-slate-500 hover:text-slate-800 border-b-2 border-transparent transition">
-                    <i class="fa-solid fa-square-poll-vertical mr-2"></i>Hasil Ujian
-                </button>
-            </div>
-
-            <!-- TAB CONTENT: BIODATA -->
-            <div id="dashBiodataTab" class="bg-white rounded-b-xl p-6 shadow-sm border border-slate-200/80">
-                <h3 class="text-lg font-bold text-slate-800 mb-4 border-b pb-2">Informasi Biodata (Read-Only)</h3>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div class="bg-slate-50 p-4 rounded-xl border border-slate-200">
-                        <p class="text-xs font-semibold text-slate-500 uppercase">Nama Lengkap</p>
-                        <p id="bioFullName" class="text-base font-bold text-slate-800 mt-1">-</p>
-                    </div>
-                    <div class="bg-slate-50 p-4 rounded-xl border border-slate-200">
-                        <p class="text-xs font-semibold text-slate-500 uppercase">Tanggal Lahir</p>
-                        <p id="bioBirthDate" class="text-base font-bold text-slate-800 mt-1">-</p>
-                    </div>
-                    <div class="bg-slate-50 p-4 rounded-xl border border-slate-200">
-                        <p class="text-xs font-semibold text-slate-500 uppercase">Nama Ibu Kandung</p>
-                        <p id="bioMotherName" class="text-base font-bold text-slate-800 mt-1">-</p>
-                    </div>
-                    <div class="bg-slate-50 p-4 rounded-xl border border-slate-200">
-                        <p class="text-xs font-semibold text-slate-500 uppercase">Username / ID Peserta</p>
-                        <p id="bioUsername" class="text-base font-mono font-bold text-blue-600 mt-1">-</p>
-                    </div>
-                </div>
-            </div>
-
-            <!-- TAB CONTENT: HASIL UJIAN -->
-            <div id="dashResultsTab" class="bg-white rounded-b-xl p-6 shadow-sm border border-slate-200/80 hidden">
-                <h3 class="text-lg font-bold text-slate-800 mb-4 border-b pb-2">Riwayat Hasil Ujian</h3>
-                <div id="examResultsHistory" class="space-y-4">
-                    <!-- Dynamic rendering of scores -->
-                </div>
-            </div>
-        </section>
-
-        <!-- VIEW 3: EXAM STEP 1 - ATURAN UJIAN CBT -->
-        <section id="examStep1" class="hidden max-w-3xl mx-auto">
-            <div class="bg-white rounded-2xl p-8 shadow-md border border-slate-200">
-                <div class="text-center mb-6">
-                    <span class="inline-block p-3 bg-blue-100 text-blue-600 rounded-full mb-3">
-                        <i class="fa-solid fa-file-shield text-2xl"></i>
-                    </span>
-                    <h2 class="text-2xl font-bold text-slate-800">Petunjuk & Aturan CBT</h2>
-                    <p class="text-slate-500 text-sm mt-1">Harap baca dengan teliti sebelum memulai ujian</p>
-                </div>
-
-                <div class="space-y-4 text-sm text-slate-700 bg-slate-50 p-5 rounded-xl border border-slate-200 mb-6">
-                    <div class="flex items-start gap-3">
-                        <span class="font-bold text-blue-600">1.</span>
-                        <p>Kamera perangkat/webcam <strong>WAJIB dalam kondisi aktif</strong> selama proses ujian berlangsung sebagai bentuk pengawasan anti-kecurangan.</p>
-                    </div>
-                    <div class="flex items-start gap-3">
-                        <span class="font-bold text-blue-600">2.</span>
-                        <p>Ujian terdiri dari <strong>2 Sesi</strong>: Sesi Pemanasan (3 Soal uji coba) dan Sesi Ujian Utama (15 Soal Pilihan Ganda).</p>
-                    </div>
-                    <div class="flex items-start gap-3">
-                        <span class="font-bold text-blue-600">3.</span>
-                        <p>Sistem menggunakan <strong>Timer Otomatis per soal</strong>. Apabila waktu habis, sistem akan otomatis berpindah ke soal berikutnya.</p>
-                    </div>
-                    <div class="flex items-start gap-3">
-                        <span class="font-bold text-blue-600">4.</span>
-                        <p>Aturan Ketat: <strong>Peserta TIDAK BISA kembali ke soal sebelumnya</strong> yang sudah dijawab atau habis waktunya!</p>
-                    </div>
-                    <div class="flex items-start gap-3">
-                        <span class="font-bold text-blue-600">5.</span>
-                        <p>Dilarang melakukan tangkap layar (screenshot) atau berpindah tab browser selama ujian.</p>
-                    </div>
-                </div>
-
-                <div class="flex justify-end">
-                    <button onclick="goToExamStep(2)" class="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-full shadow-md transition flex items-center gap-2">
-                        Lanjut <i class="fa-solid fa-arrow-right"></i>
-                    </button>
-                </div>
-            </div>
-        </section>
-
-        <!-- VIEW 4: EXAM STEP 2 - PERIZINAN & VERIFIKASI KAMERA (PERSIS GAMBAR 1) -->
-        <section id="examStep2" class="hidden max-w-4xl mx-auto">
-            <div class="bg-white rounded-2xl p-6 md:p-8 shadow-md border border-slate-200 space-y-6">
-                <h2 class="text-xl md:text-2xl font-bold text-slate-800 text-center md:text-left">Petunjuk Mengaktifkan Kamera</h2>
-
-                <!-- Panduan Gambar Browser (Mozilla & Chrome) -->
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div class="border border-slate-200 rounded-xl p-3 bg-slate-50">
-                        <p class="font-semibold text-xs text-slate-700 mb-2">Mozilla Firefox</p>
-                        <div class="bg-slate-800 text-white rounded p-3 text-xs space-y-2">
-                            <div class="flex items-center gap-2 text-slate-300">
-                                <i class="fa-solid fa-video"></i>
-                                <span>Will you allow to use your camera?</span>
-                            </div>
-                            <div class="flex justify-end gap-2 pt-2">
-                                <span class="bg-blue-600 px-3 py-1 rounded text-[11px] font-bold">Allow</span>
-                                <span class="bg-slate-600 px-2 py-1 rounded text-[11px]">Don't Allow</span>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="border border-slate-200 rounded-xl p-3 bg-slate-50">
-                        <p class="font-semibold text-xs text-slate-700 mb-2">Google Chrome</p>
-                        <div class="bg-slate-900 text-white rounded p-3 text-xs space-y-2">
-                            <div class="flex items-center gap-2 text-slate-200">
-                                <i class="fa-solid fa-camera"></i>
-                                <span>Ingin Menggunakan kamera Anda</span>
-                            </div>
-                            <div class="flex justify-end gap-2 pt-2">
-                                <span class="bg-blue-600 px-3 py-1 rounded text-[11px] font-bold">Izinkan</span>
-                                <span class="bg-slate-700 px-2 py-1 rounded text-[11px]">Blokir</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Box Pratinjau Kamera (Persis Gambar 1) -->
-                <div class="flex flex-col items-center justify-center">
-                    <div class="relative bg-black rounded-xl overflow-hidden w-full max-w-sm h-52 flex items-center justify-center border-2 border-slate-800 shadow-inner">
-                        <video id="step2WebcamVideo" class="w-full h-full object-cover hidden" autoplay playsinline muted></video>
-                        <canvas id="simulatedCameraCanvas" class="w-full h-full object-cover hidden"></canvas>
-                        
-                        <div id="cameraOfflinePlaceholder" class="text-center p-4 text-slate-400">
-                            <i class="fa-solid fa-camera-slash text-4xl mb-2 text-slate-500"></i>
-                            <p class="text-xs">Meminta Akses Kamera Device...</p>
-                        </div>
-
-                        <div id="cameraStatusBadge" class="absolute top-2 right-2 bg-black/60 text-white text-[10px] px-2 py-0.5 rounded flex items-center gap-1">
-                            <span id="cameraStatusDot" class="w-2 h-2 rounded-full bg-amber-400"></span>
-                            <span id="cameraStatusText">Memeriksa</span>
-                        </div>
-                    </div>
-
-                    <button onclick="requestCameraAccess()" class="mt-3 text-xs text-blue-600 hover:text-blue-800 underline font-medium">
-                        <i class="fa-solid fa-arrows-rotate mr-1"></i>Coba Ulang Akses Kamera
-                    </button>
-                </div>
-
-                <!-- Peringatan Alert Box -->
-                <div class="bg-white border border-slate-200 shadow-sm rounded-xl p-4 text-center max-w-2xl mx-auto">
-                    <p class="text-xs md:text-sm text-slate-700 font-medium">
-                        Semua aktivitas Anda pada laman ini akan terekam. Anda dilarang melakukan tangkap layar ketika ujian. Tindakan tangkap layar akan mendapat sanksi.
-                    </p>
-                </div>
-
-                <!-- Action Button -->
-                <div class="flex justify-center pt-2">
-                    <button id="step2NextBtn" onclick="goToExamStep(3)" class="px-8 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-full shadow-md transition flex items-center gap-2">
-                        Lanjut <i class="fa-solid fa-arrow-right"></i>
-                    </button>
-                </div>
-            </div>
-        </section>
-
-        <!-- VIEW 5: EXAM STEP 3 - PETUNJUK TEKNIS PEMANASAN (PERSIS GAMBAR 2) -->
-        <section id="examStep3" class="hidden max-w-3xl mx-auto">
-            <div class="bg-white rounded-2xl p-8 shadow-md border border-slate-200 text-center space-y-6">
-                <div>
-                    <h2 class="text-2xl font-bold text-slate-800 mb-2">Petunjuk Teknis</h2>
-                    <h3 class="text-lg font-semibold text-blue-600">Seksi I Pemanasan (Trial)</h3>
-                </div>
-
-                <div class="text-left text-sm text-slate-600 space-y-3 bg-slate-50 p-6 rounded-xl border border-slate-200">
-                    <p>1. Seksi ini berisi <strong>3 soal uji coba (pemanasan)</strong> untuk membiasakan Anda dengan interface ujian CBT.</p>
-                    <p>2. Durasi waktu per soal adalah <strong id="warmupDurationLabel">2 Menit</strong>.</p>
-                    <p>3. Setiap soal dijawab dengan memilih salah satu dari empat alternatif jawaban, yaitu (A), (B), (C), atau (D).</p>
-                    <p>4. Setelah menjawab atau waktu habis, soal akan langsung berpindah dan jawaban terkunci.</p>
-                </div>
-
-                <div>
-                    <button onclick="startWarmupExam()" class="px-10 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg shadow-md transition">
-                        Mulai
-                    </button>
-                </div>
-            </div>
-        </section>
-
-        <!-- VIEW 6 & 8: SOAL UJIAN (SPLIT VIEW - PERSIS GAMBAR 3) -->
-        <section id="examInterface" class="hidden space-y-4">
-            <!-- Exam Section Indicator Banner -->
-            <div class="bg-white p-3 rounded-xl border border-slate-200 shadow-sm flex justify-between items-center text-xs md:text-sm">
-                <span id="examTypeBadge" class="bg-blue-100 text-blue-700 font-bold px-3 py-1 rounded-full uppercase">
-                    Pemanasan
-                </span>
-                <div class="font-medium text-slate-600">
-                    Soal <span id="currentQuestionNumDisplay" class="font-bold text-slate-900">1</span> dari <span id="totalQuestionNumDisplay" class="font-bold text-slate-900">3</span>
-                </div>
-            </div>
-
-            <!-- Split View Layout -->
-            <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-                <!-- SISI KIRI: BACAAN / ILUSTRASI KONTEKS -->
-                <div class="lg:col-span-6 bg-white rounded-2xl p-5 shadow-sm border border-slate-200 min-h-[360px] flex flex-col justify-between">
-                    <div>
-                        <h4 id="passageHeader" class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Teks / Gambaran Konteks</h4>
-                        <div id="passageContent" class="prose prose-slate max-w-none text-slate-700 text-sm leading-relaxed space-y-3">
-                            <!-- Dynamic passage or SVG Graphic -->
-                        </div>
-                    </div>
-                </div>
-
-                <!-- SISI KANAN: DAFTAR SOAL & PILIHAN GANDA -->
-                <div class="lg:col-span-6 bg-white rounded-2xl p-5 shadow-sm border border-slate-200 flex flex-col justify-between min-h-[360px]">
-                    <div>
-                        <!-- Soal Header -->
-                        <div class="mb-4 pb-3 border-b border-slate-100">
-                            <p id="questionText" class="text-slate-800 font-medium text-sm md:text-base leading-snug">
-                                <!-- Question text -->
-                            </p>
-                        </div>
-
-                        <!-- Pilihan Jawaban (A, B, C, D) -->
-                        <div id="optionsContainer" class="space-y-3">
-                            <!-- Options generated dynamically -->
-                        </div>
-                    </div>
-
-                    <!-- Button Navigasi / Jawab Next -->
-                    <div class="mt-6 pt-4 border-t border-slate-100 flex justify-between items-center">
-                        <span class="text-xs text-slate-400">
-                            <i class="fa-solid fa-lock text-slate-300 mr-1"></i>Jawaban otomatis terkunci saat lanjut
-                        </span>
-                        <button id="nextQuestionBtn" onclick="submitAndNextQuestion()" class="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg shadow transition text-sm flex items-center gap-2">
-                            Simpan & Lanjut <i class="fa-solid fa-chevron-right text-xs"></i>
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </section>
-
-        <!-- VIEW 7: INTERMISSION WARNING (ANTARA PEMANASAN DAN UJIAN UTAMA) -->
-        <section id="examIntermission" class="hidden max-w-2xl mx-auto">
-            <div class="bg-amber-50 border-2 border-amber-300 rounded-2xl p-8 shadow-md text-center space-y-5">
-                <div class="w-16 h-16 bg-amber-500 text-white rounded-full flex items-center justify-center mx-auto text-3xl shadow-md">
-                    <i class="fa-solid fa-bell animate-bounce"></i>
-                </div>
-                <div>
-                    <h2 class="text-2xl font-bold text-amber-900">Sesi Pemanasan Selesai!</h2>
-                    <p class="text-amber-800 text-sm mt-2">Ujian sebenarnya akan segera dilaksanakan. Harap persiapkan diri Anda dengan tenang.</p>
-                </div>
-                <div class="bg-white p-4 rounded-xl border border-amber-200 text-xs text-slate-600 text-left space-y-1">
-                    <p class="font-semibold text-slate-800">Detail Ujian Utama:</p>
-                    <p>• Total Soal: <strong>15 Soal Pilihan Ganda</strong></p>
-                    <p>• Durasi Per Soal: <strong id="mainExamDurationLabel">5 Menit</strong></p>
-                    <p>• Kamera Wajib Tetap Aktif</p>
-                </div>
-                <button onclick="startMainExam()" class="w-full py-3 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-xl shadow transition text-base">
-                    Saya Siap, Mulai Ujian Utama Now!
-                </button>
-            </div>
-        </section>
-
-        <!-- VIEW 9: HASIL UJIAN SELESAI -->
-        <section id="examCompletionView" class="hidden max-w-xl mx-auto text-center space-y-6">
-            <div class="bg-white rounded-2xl p-8 shadow-lg border border-slate-200 space-y-4">
-                <div class="w-20 h-20 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto text-4xl">
-                    <i class="fa-solid fa-circle-check"></i>
-                </div>
-                <h2 class="text-2xl font-bold text-slate-800">Ujian Telah Selesai!</h2>
-                <p class="text-slate-500 text-sm">Jawaban dan rekam aktivitas kamera Anda telah tersimpan dengan aman di server CBT.</p>
                 
-                <div class="bg-slate-50 p-6 rounded-xl border border-slate-200 space-y-3">
-                    <p class="text-xs uppercase font-semibold text-slate-400">Skor Akhir Ujian Utama</p>
-                    <div id="finalScoreDisplay" class="text-4xl font-extrabold text-blue-600">
-                        0 / 100
+                <!-- Form Login -->
+                <div id="form-login-container" class="p-8">
+                    <form onsubmit="handleParticipantLogin(event)" class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700 mb-1">Username (No. Peserta / Tgl Lahir)</label>
+                            <input type="text" id="login-user" required placeholder="Contoh: 30062007" class="w-full px-4 py-2 border rounded focus:ring-2 focus:ring-blue-500 outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700 mb-1">Password (Nama Ibu Kandung)</label>
+                            <input type="password" id="login-pass" required placeholder="Huruf kecil tanpa spasi" class="w-full px-4 py-2 border rounded focus:ring-2 focus:ring-blue-500 outline-none">
+                        </div>
+                        <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 rounded transition">Masuk Ujian</button>
+                    </form>
+                    <div class="mt-6 text-center">
+                        <button onclick="document.getElementById('admin-modal').classList.remove('hidden')" class="text-xs text-slate-400 hover:text-slate-600 underline">Login Khusus Admin</button>
                     </div>
-                    <p id="finalScoreDetail" class="text-xs text-slate-500">
-                        Memproses penilaian...
-                    </p>
                 </div>
 
-                <button onclick="goToDashboard()" class="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg shadow transition">
-                    Kembali ke Dashboard Utama
-                </button>
+                <!-- Form Register -->
+                <div id="form-register-container" class="p-8 hidden">
+                    <form onsubmit="handleParticipantRegister(event)" class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700 mb-1">Nama Lengkap</label>
+                            <input type="text" id="reg-nama" required class="w-full px-4 py-2 border rounded outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700 mb-1">Tanggal Lahir</label>
+                            <input type="date" id="reg-tgl" required class="w-full px-4 py-2 border rounded outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700 mb-1">Nama Ibu Kandung</label>
+                            <input type="text" id="reg-ibu" required class="w-full px-4 py-2 border rounded outline-none">
+                        </div>
+                        <button type="submit" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2.5 rounded transition">Daftar Sekarang</button>
+                    </form>
+                </div>
             </div>
-        </section>
+        </div>
 
-        <!-- VIEW 10: DASHBOARD ADMINISTRATOR -->
-        <section id="adminDashboard" class="hidden space-y-6">
-            <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-slate-900 text-white p-6 rounded-2xl shadow-lg">
+        <!-- MODAL LOGIN ADMIN -->
+        <div id="admin-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div class="bg-white p-6 rounded-lg shadow-xl w-96 relative">
+                <button onclick="document.getElementById('admin-modal').classList.add('hidden')" class="absolute top-3 right-3 text-slate-400 hover:text-red-500">✖</button>
+                <h3 class="text-lg font-bold mb-4">Login Administrator</h3>
+                <form onsubmit="handleAdminLogin(event)" class="space-y-3">
+                    <input type="text" id="admin-user" required placeholder="Username" class="w-full px-3 py-2 border rounded">
+                    <input type="password" id="admin-pass" required placeholder="Password" class="w-full px-3 py-2 border rounded">
+                    <button type="submit" class="w-full bg-slate-800 text-white font-bold py-2 rounded">Login Admin</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- VIEW: DASHBOARD PESERTA -->
+        <div id="view-dashboard" class="hidden max-w-4xl mx-auto py-10 px-4">
+            <div class="bg-blue-600 text-white rounded-xl p-8 mb-6 shadow-lg flex justify-between items-center">
                 <div>
-                    <h2 class="text-2xl font-bold">Dashboard Administrator CBT</h2>
-                    <p class="text-xs text-slate-400 mt-1">Kelola Soal, Durasi, Peserta, & Pengawasan Kamera Real-time</p>
+                    <h2 class="text-3xl font-bold mb-2">Selamat Datang, <span id="dash-name"></span>!</h2>
+                    <p class="text-blue-100">Nomor Peserta CBT: <span id="dash-username" class="bg-blue-700 px-2 py-1 rounded"></span></p>
                 </div>
-                <div class="flex items-center gap-2">
-                    <span class="text-xs bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 px-3 py-1 rounded-full font-semibold">
-                        <i class="fa-solid fa-server mr-1"></i>System Active
-                    </span>
-                    <button onclick="handleLogout()" class="text-xs bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-lg font-medium transition">
-                        Keluar
-                    </button>
+                <button onclick="startPreparationFlow()" class="bg-white text-blue-600 font-bold px-6 py-3 rounded-lg shadow hover:bg-slate-50 transition">▶ Mulai Ujian CBT</button>
+            </div>
+            <div class="bg-white rounded-xl shadow border p-6">
+                <h3 class="text-lg font-bold text-slate-800 border-b pb-3 mb-4">Informasi Biodata (Read-Only)</h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="bg-slate-50 p-3 rounded border"><span class="block text-xs text-slate-500 font-bold mb-1">NAMA LENGKAP</span><div id="bio-nama" class="font-medium"></div></div>
+                    <div class="bg-slate-50 p-3 rounded border"><span class="block text-xs text-slate-500 font-bold mb-1">TANGGAL LAHIR</span><div id="bio-tgl" class="font-medium"></div></div>
+                    <div class="bg-slate-50 p-3 rounded border"><span class="block text-xs text-slate-500 font-bold mb-1">NAMA IBU KANDUNG</span><div id="bio-ibu" class="font-medium"></div></div>
+                    <div class="bg-slate-50 p-3 rounded border"><span class="block text-xs text-slate-500 font-bold mb-1">STATUS UJIAN</span><div id="bio-status" class="font-medium text-blue-600"></div></div>
                 </div>
             </div>
+        </div>
 
-            <!-- STAT CARDS -->
-            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
-                    <div>
-                        <p class="text-xs font-semibold text-slate-400 uppercase">Total Peserta</p>
-                        <h3 id="statTotalPeserta" class="text-2xl font-bold text-slate-800 mt-1">0</h3>
-                    </div>
-                    <div class="w-12 h-12 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center text-xl">
-                        <i class="fa-solid fa-users"></i>
-                    </div>
-                </div>
-                <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
-                    <div>
-                        <p class="text-xs font-semibold text-slate-400 uppercase">Sudah Ujian</p>
-                        <h3 id="statUjianSelesai" class="text-2xl font-bold text-emerald-600 mt-1">0</h3>
-                    </div>
-                    <div class="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center text-xl">
-                        <i class="fa-solid fa-graduation-cap"></i>
-                    </div>
-                </div>
-                <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
-                    <div>
-                        <p class="text-xs font-semibold text-slate-400 uppercase">Soal Pemanasan</p>
-                        <h3 id="statWarmupCount" class="text-2xl font-bold text-amber-600 mt-1">3</h3>
-                    </div>
-                    <div class="w-12 h-12 bg-amber-50 text-amber-600 rounded-xl flex items-center justify-center text-xl">
-                        <i class="fa-solid fa-fire"></i>
-                    </div>
-                </div>
-                <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
-                    <div>
-                        <p class="text-xs font-semibold text-slate-400 uppercase">Soal Ujian Utama</p>
-                        <h3 id="statMainCount" class="text-2xl font-bold text-indigo-600 mt-1">15</h3>
-                    </div>
-                    <div class="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center text-xl">
-                        <i class="fa-solid fa-file-pen"></i>
-                    </div>
-                </div>
-            </div>
-
-            <!-- ADMIN TABS NAVIGATION -->
-            <div class="flex border-b border-slate-200 bg-white rounded-t-xl px-4 pt-3 overflow-x-auto">
-                <button id="adminTabQuestionsBtn" onclick="switchAdminTab('questions')" class="py-2.5 px-4 font-semibold text-sm text-blue-600 border-b-2 border-blue-600 transition whitespace-nowrap">
-                    <i class="fa-solid fa-file-lines mr-2"></i>Kelola Soal & Durasi
-                </button>
-                <button id="adminTabParticipantsBtn" onclick="switchAdminTab('participants')" class="py-2.5 px-4 font-semibold text-sm text-slate-500 hover:text-slate-800 border-b-2 border-transparent transition whitespace-nowrap">
-                    <i class="fa-solid fa-user-group mr-2"></i>Daftar Peserta & Status
-                </button>
-                <button id="adminTabProctoringBtn" onclick="switchAdminTab('proctoring')" class="py-2.5 px-4 font-semibold text-sm text-slate-500 hover:text-slate-800 border-b-2 border-transparent transition whitespace-nowrap">
-                    <i class="fa-solid fa-camera mr-2"></i>Pengawasan Webcam
-                </button>
-            </div>
-
-            <!-- ADMIN TAB 1: KELOLA SOAL & DURASI -->
-            <div id="adminTabQuestions" class="bg-white rounded-b-xl p-6 shadow-sm border border-slate-200/80 space-y-6">
-                <!-- Durasi Config Box -->
-                <div class="bg-slate-50 p-4 rounded-xl border border-slate-200 flex flex-wrap gap-4 items-center justify-between">
-                    <h3 class="font-bold text-slate-800 text-sm"><i class="fa-solid fa-stopwatch text-blue-600 mr-2"></i>Pengaturan Durasi Per Soal:</h3>
-                    <div class="flex gap-4 items-center flex-wrap">
-                        <div class="flex items-center gap-2">
-                            <label class="text-xs font-semibold text-slate-600">Pemanasan (detik):</label>
-                            <input type="number" id="adminWarmupDurationInput" class="w-20 px-2 py-1 border rounded text-sm text-center font-bold">
+        <!-- VIEW: PETUNJUK KAMERA -->
+        <div id="view-camera-setup" class="hidden max-w-4xl mx-auto py-10 px-4 flex flex-col items-center">
+            <div class="bg-white p-8 rounded-xl shadow w-full">
+                <h2 class="text-xl font-bold mb-6">Petunjuk Mengaktifkan Kamera</h2>
+                <div class="flex flex-col items-center justify-center gap-6">
+                    <div class="w-80 h-60 bg-black rounded-lg overflow-hidden border-4 border-slate-200 relative flex items-center justify-center">
+                        <video id="setup-webcam" autoplay playsinline muted class="w-full h-full object-cover transform -scale-x-100 hidden"></video>
+                        <div id="camera-placeholder" class="text-white flex flex-col items-center">
+                            <svg class="w-12 h-12 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+                            <p class="text-sm">Menunggu Izin Kamera...</p>
                         </div>
-                        <div class="flex items-center gap-2">
-                            <label class="text-xs font-semibold text-slate-600">Ujian Utama (detik):</label>
-                            <input type="number" id="adminMainDurationInput" class="w-20 px-2 py-1 border rounded text-sm text-center font-bold">
-                        </div>
-                        <button onclick="saveDurationSettings()" class="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-semibold transition">
-                            Simpan Durasi
-                        </button>
                     </div>
-                </div>
-
-                <!-- Add Question Modal Trigger -->
-                <div class="flex justify-between items-center">
-                    <h3 class="font-bold text-slate-800">Daftar Soal CBT</h3>
-                    <button onclick="openQuestionModal()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition flex items-center gap-1">
-                        <i class="fa-solid fa-plus"></i> Tambah Soal
-                    </button>
-                </div>
-
-                <!-- Table Soal -->
-                <div class="overflow-x-auto">
-                    <table class="w-full text-left text-xs border-collapse">
-                        <thead>
-                            <tr class="bg-slate-100 text-slate-600 uppercase font-bold border-b">
-                                <th class="p-3">Kategori</th>
-                                <th class="p-3">No</th>
-                                <th class="p-3">Pertanyaan</th>
-                                <th class="p-3">Kunci Jawaban</th>
-                                <th class="p-3 text-center">Aksi</th>
-                            </tr>
-                        </thead>
-                        <tbody id="adminQuestionsTableBody" class="divide-y divide-slate-200">
-                            <!-- Dynamic rows -->
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-
-            <!-- ADMIN TAB 2: DAFTAR PESERTA & STATUS -->
-            <div id="adminTabParticipants" class="bg-white rounded-b-xl p-6 shadow-sm border border-slate-200/80 hidden space-y-4">
-                <h3 class="font-bold text-slate-800 border-b pb-2">Informasi Akun & Status Peserta</h3>
-                <div class="overflow-x-auto">
-                    <table class="w-full text-left text-xs border-collapse">
-                        <thead>
-                            <tr class="bg-slate-100 text-slate-600 uppercase font-bold border-b">
-                                <th class="p-3">No. Peserta</th>
-                                <th class="p-3">Nama Lengkap</th>
-                                <th class="p-3">Tgl Lahir</th>
-                                <th class="p-3">Nama Ibu</th>
-                                <th class="p-3">Status Ujian</th>
-                                <th class="p-3">Nilai Selesai</th>
-                                <th class="p-3 text-center">Aksi</th>
-                            </tr>
-                        </thead>
-                        <tbody id="adminParticipantsTableBody" class="divide-y divide-slate-200">
-                            <!-- Dynamic participant rows -->
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-
-            <!-- ADMIN TAB 3: PENGAWASAN WEBCAM -->
-            <div id="adminTabProctoring" class="bg-white rounded-b-xl p-6 shadow-sm border border-slate-200/80 hidden space-y-4">
-                <div class="flex justify-between items-center border-b pb-2">
-                    <div>
-                        <h3 class="font-bold text-slate-800">Rekaman Kamera Peserta Real-Time</h3>
-                        <p class="text-xs text-slate-500">Tangkapan layar pengawasan yang diambil selama pelaksanaan ujian berlangsung</p>
+                    <div class="border border-slate-200 p-4 rounded text-sm text-center max-w-lg bg-slate-50">
+                        Semua aktivitas Anda pada laman ini akan terekam. Anda dilarang melakukan tangkap layar ketika ujian. Tindakan tangkap layar akan mendapat sanksi.
                     </div>
-                </div>
-
-                <div id="proctoringGallery" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                    <!-- Dynamic webcam snapshot cards -->
+                    <button id="btn-camera-lanjut" onclick="showView('view-technical-instructions')" disabled class="bg-blue-600 text-white font-bold px-8 py-2.5 rounded-full opacity-50 cursor-not-allowed">Lanjut →</button>
                 </div>
             </div>
-        </section>
+        </div>
 
+        <!-- VIEW: PETUNJUK TEKNIS -->
+        <div id="view-technical-instructions" class="hidden max-w-4xl mx-auto py-10 px-4 flex justify-center">
+            <div class="bg-white p-10 rounded-xl shadow w-full max-w-3xl">
+                <h2 class="text-xl font-bold mb-8">Petunjuk Teknis</h2>
+                <div class="text-center mb-6"><h3 class="text-lg font-bold">Seksi <span id="seksi-title">Pemanasan</span></h3></div>
+                <div class="text-gray-700 leading-relaxed mb-8 space-y-2">
+                    <p>1. Seksi ini berisi soal pemahaman isi bacaan atau konteks.</p>
+                    <p>2. Setiap soal memiliki durasi waktu pengerjaan yang akan berjalan otomatis.</p>
+                    <p>3. Setiap soal dijawab dengan memilih satu dari empat alternatif jawaban, yaitu (A), (B), (C), atau (D).</p>
+                    <p>4. <span class="font-bold text-red-600">PENTING:</span> Anda tidak dapat kembali ke soal sebelumnya. Jika waktu habis, soal akan otomatis berganti ke nomor berikutnya.</p>
+                </div>
+                <div class="text-center">
+                    <button onclick="mulaiUjian()" class="bg-blue-600 hover:bg-blue-700 text-white font-bold px-10 py-3 rounded">Mulai</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- VIEW: EXAM ENGINE (SPLIT LAYOUT) -->
+        <div id="view-exam" class="hidden split-layout flex flex-col md:flex-row w-full bg-white">
+            <!-- Kiri: Konteks/Bacaan -->
+            <div class="w-full md:w-1/2 p-6 overflow-y-auto border-r bg-orange-50/30 flex items-center justify-center">
+                <div id="exam-context" class="w-full h-full bg-contain bg-center bg-no-repeat">
+                    <!-- Image or Text context injected here -->
+                </div>
+            </div>
+            <!-- Kanan: Pertanyaan & Opsi -->
+            <div class="w-full md:w-1/2 p-6 md:p-10 overflow-y-auto flex flex-col relative">
+                <div class="mb-4 flex justify-between items-center">
+                    <span class="text-sm font-bold text-slate-500 bg-slate-100 px-3 py-1 rounded-full">Soal No. <span id="q-number">1</span> / <span id="q-total"></span></span>
+                </div>
+                <h3 id="q-text" class="text-lg font-medium text-slate-800 mb-6">Pertanyaan...</h3>
+                <div id="q-options" class="space-y-3 flex-1">
+                    <!-- Options injected here -->
+                </div>
+                <div class="mt-8 flex justify-end">
+                    <button onclick="submitAnswer()" class="bg-blue-600 text-white font-bold px-8 py-2.5 rounded shadow hover:bg-blue-700">Pilih & Lanjut</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- VIEW: INTERMISSION -->
+        <div id="view-intermission" class="hidden max-w-4xl mx-auto py-20 px-4 flex justify-center text-center">
+            <div class="bg-white p-10 rounded-xl shadow w-full max-w-2xl border-t-4 border-yellow-400">
+                <h2 class="text-3xl font-bold text-slate-800 mb-4">Uji Coba Selesai</h2>
+                <p class="text-lg text-slate-600 mb-8">Pemanasan telah selesai. Ujian yang sebenarnya akan segera dilaksanakan. Harap bersiap.</p>
+                <button onclick="prepareMainExam()" class="bg-blue-600 text-white font-bold px-8 py-3 rounded-lg hover:bg-blue-700">Mulai Ujian Sebenarnya</button>
+            </div>
+        </div>
+
+        <!-- VIEW: HASIL UJIAN -->
+        <div id="view-result" class="hidden max-w-4xl mx-auto py-10 px-4">
+            <div class="bg-white p-10 rounded-xl shadow text-center">
+                <div class="w-20 h-20 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                </div>
+                <h2 class="text-3xl font-bold mb-2">Ujian Telah Selesai</h2>
+                <p class="text-slate-500 mb-8">Terima kasih telah mengikuti simulasi CBT Adaptif.</p>
+                
+                <div class="max-w-sm mx-auto bg-slate-50 p-6 rounded-xl border mb-8">
+                    <span class="block text-sm text-slate-500 font-bold mb-1">SKOR AKHIR ANDA</span>
+                    <div class="text-5xl font-bold text-blue-600"><span id="res-score">0</span><span class="text-2xl text-slate-400">/100</span></div>
+                    <div class="text-sm text-slate-500 mt-2">Benar <span id="res-correct" class="font-bold">0</span> dari <span id="res-total">0</span> soal</div>
+                </div>
+                
+                <button onclick="handleLogout()" class="bg-slate-800 text-white font-bold px-8 py-2.5 rounded hover:bg-slate-900">Keluar Sistem</button>
+            </div>
+        </div>
+
+        <!-- VIEW: ADMIN DASHBOARD -->
+        <div id="view-admin" class="hidden p-6 w-full h-full bg-slate-100 flex flex-col">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-2xl font-bold">Dashboard Administrator</h2>
+                <button onclick="handleLogout()" class="bg-red-600 text-white px-4 py-2 rounded">Logout Admin</button>
+            </div>
+            <div class="bg-white p-6 rounded-lg shadow flex-1 overflow-auto">
+                <h3 class="font-bold mb-4">Daftar Akun & Hasil Peserta</h3>
+                <table class="w-full text-left border-collapse">
+                    <thead>
+                        <tr class="bg-slate-100">
+                            <th class="p-3 border-b">Username / ID</th>
+                            <th class="p-3 border-b">Nama Peserta</th>
+                            <th class="p-3 border-b">Status</th>
+                            <th class="p-3 border-b">Nilai Akhir</th>
+                        </tr>
+                    </thead>
+                    <tbody id="admin-table-body">
+                        <!-- Data rows here -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
     </main>
 
-    <!-- MODAL EDIT/TAMBAH SOAL ADMIN -->
-    <div id="questionModal" class="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 z-50 hidden">
-        <div class="bg-white rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-2xl">
-            <h3 id="modalQuestionTitle" class="text-lg font-bold text-slate-800">Tambah Soal Baru</h3>
-            
-            <form onsubmit="handleSaveQuestion(event)" class="space-y-3 text-xs">
-                <input type="hidden" id="editQuestionIndex" value="-1">
-                <div>
-                    <label class="block font-semibold text-slate-600 mb-1">Kategori Ujian</label>
-                    <select id="qCategory" class="w-full p-2 border rounded-lg">
-                        <option value="warmup">Soal Pemanasan (Trial)</option>
-                        <option value="main">Soal Ujian Utama</option>
-                    </select>
-                </div>
-                <div>
-                    <label class="block font-semibold text-slate-600 mb-1">Teks Bacaan / Konteks (Opsional)</label>
-                    <textarea id="qPassage" rows="2" placeholder="Teks ilustrasi atau bacaan pendukung" class="w-full p-2 border rounded-lg"></textarea>
-                </div>
-                <div>
-                    <label class="block font-semibold text-slate-600 mb-1">Pertanyaan Soal</label>
-                    <textarea id="qText" required rows="2" placeholder="Isi pertanyaan..." class="w-full p-2 border rounded-lg"></textarea>
-                </div>
-                <div class="grid grid-cols-2 gap-2">
-                    <div>
-                        <label class="block font-semibold text-slate-600 mb-1">Pilihan A</label>
-                        <input type="text" id="qOptA" required class="w-full p-2 border rounded-lg">
-                    </div>
-                    <div>
-                        <label class="block font-semibold text-slate-600 mb-1">Pilihan B</label>
-                        <input type="text" id="qOptB" required class="w-full p-2 border rounded-lg">
-                    </div>
-                    <div>
-                        <label class="block font-semibold text-slate-600 mb-1">Pilihan C</label>
-                        <input type="text" id="qOptC" required class="w-full p-2 border rounded-lg">
-                    </div>
-                    <div>
-                        <label class="block font-semibold text-slate-600 mb-1">Pilihan D</label>
-                        <input type="text" id="qOptD" required class="w-full p-2 border rounded-lg">
-                    </div>
-                </div>
-                <div>
-                    <label class="block font-semibold text-slate-600 mb-1">Kunci Jawaban Benar</label>
-                    <select id="qCorrectKey" class="w-full p-2 border rounded-lg font-bold">
-                        <option value="A">Pilihan (A)</option>
-                        <option value="B">Pilihan (B)</option>
-                        <option value="C">Pilihan (C)</option>
-                        <option value="D">Pilihan (D)</option>
-                    </select>
-                </div>
-
-                <div class="flex justify-end gap-2 pt-3 border-t">
-                    <button type="button" onclick="closeQuestionModal()" class="px-4 py-2 bg-slate-200 text-slate-700 font-semibold rounded-lg">Batal</button>
-                    <button type="submit" class="px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg">Simpan Soal</button>
-                </div>
-            </form>
-        </div>
-    </div>
-
+    <!-- CORE JAVASCRIPT APP -->
     <script>
-        // APP STATE & CONSTANTS
-        const ADMIN_CREDS = { username: "lebahganteng", password: "manusia123" };
+        // --- 1. STATE & DATA MANAGEMENT ---
+        const DB_USERS_KEY = 'cbt_users_v2';
+        let currentUser = null;
+        let localUsers = JSON.parse(localStorage.getItem(DB_USERS_KEY) || '[]');
         
-        let state = {
-            currentUser: null, // { role: 'participant'|'admin', data: {...} }
-            participants: [],
-            questions: {
-                warmup: [],
-                main: []
-            },
-            durations: {
-                warmup: 120, // seconds
-                main: 300   // seconds
-            },
-            examSession: {
-                active: false,
-                type: 'warmup', // 'warmup' | 'main'
-                currentIndex: 0,
-                userAnswers: {},
-                timerInterval: null,
-                timeRemaining: 0,
-                cameraStream: null,
-                snapshots: []
-            }
+        let examState = {
+            mode: 'pemanasan', // pemanasan | utama
+            currentIndex: 0,
+            timer: null,
+            timeRemaining: 0,
+            answers: [],
+            stream: null
         };
 
-        // DEFAULT QUESTIONS INITIAL DATASET
-        const DEFAULT_WARMUP_QUESTIONS = [
-            {
-                passage: "<strong>Pemanasan Cepat:</strong> Bacalah petunjuk dengan seksama sebelum memilih jawaban terbaik.",
-                question: "1. Ujian CBT Adaptif ini mewajibkan kamera berada dalam kondisi...",
-                options: { A: "Mati/Off", B: "Aktif/On", C: "Boleh Mana Saja", D: "Hanya Suara" },
-                correct: "B"
-            },
-            {
-                passage: "<strong>Petunjuk Teknis:</strong> Penggunaan waktu per soal berjalan secara otomatis.",
-                question: "2. Apakah peserta dapat kembali ke soal yang sudah habis waktunya?",
-                options: { A: "Dapat Kembali Kapan Saja", B: "Hanya Jika Ada Izin Admin", C: "Tidak Dapat Kembali", D: "Bisa Mengulang 1 Kali" },
-                correct: "C"
-            },
-            {
-                passage: "<strong>Latihan Logika:</strong> Semua peserta CBT harus disiplin dan teliti.",
-                question: "3. Kata manakah yang merupakan sinonim dari kata 'TELITI'?",
-                options: { A: "Cermat", B: "Ceroboh", C: "Cepat", D: "Lambat" },
-                correct: "A"
-            }
-        ];
-
-        const DEFAULT_MAIN_QUESTIONS = [
-            // Questions 1-5 referencing Invitation Passage (Image 3 Context)
-            {
-                passage: `<div class="bg-amber-50 p-4 rounded-xl border border-amber-200 text-center font-sans space-y-2">
-                            <span class="inline-block bg-pink-100 text-pink-700 text-[10px] px-2 py-0.5 rounded-full font-bold">UNDANGAN SYUKURAN</span>
-                            <h3 class="text-lg font-bold text-slate-800">Syukuran Akikah</h3>
-                            <p class="text-xs text-slate-600">Kami mengharapkan kehadiran Bapak/Ibu/Saudara/i dalam acara syukuran akikah putri kami tercinta:</p>
-                            <p class="text-base font-bold text-pink-600">BUNGA JAMILA</p>
-                            <div class="text-xs text-slate-700 bg-white p-2 rounded border border-amber-100 mt-2">
-                                <p><strong>Hari/Tanggal:</strong> Minggu, 23 Oktober 2024</p>
-                                <p><strong>Tempat:</strong> Jalan Asoka RT 005 RW 03 No. 34, Kel. Pasar Baru, Banten</p>
-                            </div>
-                          </div>`,
-                question: "1. Si anak lahir atau diakikahkan pada tanggal ... Oktober 2024.",
-                options: { A: "5", B: "9", C: "16", D: "23" },
-                correct: "D"
-            },
-            {
-                passage: "Gunakan poster Undangan Syukuran Akikah di atas untuk menjawab pertanyaan nomor 2.",
-                question: "2. Acara syukuran akikah tersebut berlangsung pada hari ....",
-                options: { A: "Sabtu", B: "Senin", C: "Selasa", D: "Minggu" },
-                correct: "D"
-            },
-            {
-                passage: "Gunakan poster Undangan Syukuran Akikah di atas untuk menjawab pertanyaan nomor 3.",
-                question: "3. Tempat acara syukuran terletak di Jalan ....",
-                options: { A: "Baru", B: "Pasar", C: "Asoka", D: "Seroja" },
-                correct: "C"
-            },
-            {
-                passage: "Gunakan poster Undangan Syukuran Akikah di atas untuk menjawab pertanyaan nomor 4.",
-                question: "4. Nama anak yang diakikahkan berdasarkan undangan di atas adalah ....",
-                options: { A: "Bunga Jamila", B: "Siti Rahma", C: "Putri Asoka", D: "Nabila Banten" },
-                correct: "A"
-            },
-            {
-                passage: "Gunakan poster Undangan Syukuran Akikah di atas untuk menjawab pertanyaan nomor 5.",
-                question: "5. Kelurahan lokasi tempat dilaksanakannya syukuran adalah ....",
-                options: { A: "Pasar Baru", B: "Asoka Jaya", C: "Banten Permai", D: "Seroja Indah" },
-                correct: "A"
-            },
-            // Questions 6-15 General Bahasa Indonesia / Comprehension
-            {
-                passage: "<strong>Teks Bacaan:</strong> Bahasa Indonesia merupakan bahasa persatuan yang berfungsi sebagai sarana komunikasi utama antar suku di seluruh pelosok tanah air.",
-                question: "6. Gagasan utama dari kalimat di atas adalah ....",
-                options: { A: "Keragaman suku bangsa", B: "Fungsi Bahasa Indonesia sebagai sarana komunikasi", C: "Sejarah bahasa daerah", D: "Pentingnya wilayah tanah air" },
-                correct: "B"
-            },
-            {
-                passage: "<strong>Teks Bacaan:</strong> Terumbu karang memiliki peranan ekologis yang sangat vital bagi kelangsungan ekosistem laut.",
-                question: "7. Sinonim kata 'VITAL' dalam paragraf tersebut adalah ....",
-                options: { A: "Sangat Penting", B: "Biasa Saja", C: "Tambahan", D: "Berbahaya" },
-                correct: "A"
-            },
-            {
-                passage: "<strong>Teks Bacaan:</strong> Hujan deras yang mengguyur ibu kota sejak pagi menyebabkan beberapa ruas jalan tergenang air.",
-                question: "8. Akibat utama dari hujan deras berdasarkan kalimat di atas adalah ....",
-                options: { A: "Cuaca menjadi panas", B: "Beberapa ruas jalan tergenang air", C: "Lalu lintas menjadi sangat lancar", D: "Masyarakat senang" },
-                correct: "B"
-            },
-            {
-                passage: "<strong>Teks Bacaan:</strong> Siswa yang ingin mengikuti kegiatan ekstrakurikuler wajib mendaftarkan diri kepada pembina.",
-                question: "9. Siapa yang menjadi tujuan pendaftaran ekstrakurikuler?",
-                options: { A: "Kepala Sekolah", B: "Pembina", C: "Ketua Kelas", D: "Penjaga Sekolah" },
-                correct: "B"
-            },
-            {
-                passage: "<strong>Teks Bacaan:</strong> Kesehatan tubuh dapat dijaga dengan mengonsumsi makanan bergizi dan berolahraga secara teratur.",
-                question: "10. Dua cara menjaga kesehatan tubuh adalah ....",
-                options: { A: "Makan cepat & tidur cepat", B: "Makanan bergizi & olahraga teratur", C: "Minum es & istirahat lama", D: "Bekerja keras & makan banyak" },
-                correct: "B"
-            },
-            {
-                passage: "<strong>Teks Bacaan:</strong> Perpustakaan menyediakan berbagai macam buku referensi untuk membantu pengerjaan tugas.",
-                question: "11. Fungsi utama perpustakaan menurut bacaan tersebut adalah ....",
-                options: { A: "Tempat istirahat", B: "Menyediakan buku referensi tugas", C: "Tempat jual beli buku", D: "Ruang makan" },
-                correct: "B"
-            },
-            {
-                passage: "<strong>Teks Bacaan:</strong> Penggunaan energi terbarukan seperti angin dan matahari dapat mengurangi dampak pemanasan global.",
-                question: "12. Contoh energi terbarukan yang disebutkan adalah ....",
-                options: { A: "Batu bara & minyak", B: "Angin & matahari", C: "Gas bumi & listrik", D: "Kayu bakar & bensin" },
-                correct: "B"
-            },
-            {
-                passage: "<strong>Teks Bacaan:</strong> Rapat evaluasi kinerja pegawai akan dilaksanakan pada hari Senin mendatang.",
-                question: "13. Kegiatan yang akan dilaksanakan pada hari Senin adalah ....",
-                options: { A: "Rapat evaluasi kinerja", B: "Pesta ulang tahun", C: "Upacara bendera", D: "Libur bersama" },
-                correct: "A"
-            },
-            {
-                passage: "<strong>Teks Bacaan:</strong> Disiplin merupakan kunci utama menuju keberhasilan dalam belajar maupun bekerja.",
-                question: "14. Menurut teks di atas, kunci utama keberhasilan adalah ....",
-                options: { A: "Kekayaan", B: "Disiplin", C: "Bantuan Orang Lain", D: "Keberuntungan" },
-                correct: "B"
-            },
-            {
-                passage: "<strong>Teks Bacaan:</strong> Hutan bakau bermanfaat mencegah abrasi pantai dari hantaman ombak laut.",
-                question: "15. Manfaat hutan bakau yang dijelaskan pada bacaan adalah ....",
-                options: { A: "Menghasilkan buah", B: "Mencegah abrasi pantai", C: "Tempat rekreasi", D: "Sumber kayu bangunan" },
-                correct: "B"
-            }
-        ];
-
-        window.onload = function() {
-            loadInitialData();
-            checkSession();
+        // Data Soal Mockup (Gambar placeholder diwakili oleh warna/teks agar rapi)
+        const bankSoal = {
+            pemanasan: [
+                { id: 'p1', durasi: 120, teks: "Ibukota negara Indonesia saat ini adalah...", opsi: ["Jakarta", "Bandung", "Surabaya", "Medan"], jawaban: 0 },
+                { id: 'p2', durasi: 120, teks: "Berapa hasil dari 5 + 7?", opsi: ["10", "11", "12", "13"], jawaban: 2 },
+                { id: 'p3', durasi: 120, teks: "Warna bendera Indonesia adalah...", opsi: ["Merah Putih", "Putih Merah", "Merah Biru", "Hijau Kuning"], jawaban: 0 }
+            ],
+            utama: Array.from({length: 15}, (_, i) => ({
+                id: `u${i+1}`,
+                durasi: 300, // 5 menit per soal
+                teks: `Soal Utama nomor ${i+1}. Pilihlah jawaban yang paling tepat.`,
+                opsi: ["Jawaban A", "Jawaban B", "Jawaban C", "Jawaban D"],
+                jawaban: Math.floor(Math.random() * 4) // random jawaban benar utk mockup
+            }))
         };
 
-        function loadInitialData() {
-            // Participants
-            const savedParticipants = localStorage.getItem('cbt_participants');
-            if (savedParticipants) {
-                state.participants = JSON.parse(savedParticipants);
-            } else {
-                state.participants = [];
-            }
+        // Kredensial Admin Default
+        const ADMIN_USER = 'lebahganteng';
+        const ADMIN_PASS = 'manusia123';
 
-            // Questions
-            const savedQuestions = localStorage.getItem('cbt_questions');
-            if (savedQuestions) {
-                state.questions = JSON.parse(savedQuestions);
-            } else {
-                state.questions = {
-                    warmup: DEFAULT_WARMUP_QUESTIONS,
-                    main: DEFAULT_MAIN_QUESTIONS
-                };
-                saveQuestionsToStorage();
-            }
-
-            // Durations
-            const savedDurations = localStorage.getItem('cbt_durations');
-            if (savedDurations) {
-                state.durations = JSON.parse(savedDurations);
-            }
-        }
-
-        function saveParticipantsToStorage() {
-            localStorage.setItem('cbt_participants', JSON.stringify(state.participants));
-        }
-
-        function saveQuestionsToStorage() {
-            localStorage.setItem('cbt_questions', JSON.stringify(state.questions));
-        }
-
-        function saveDurationsToStorage() {
-            localStorage.setItem('cbt_durations', JSON.stringify(state.durations));
-        }
-
-        function hideAllSections() {
-            const sections = [
-                'authPage', 'participantDashboard', 'examStep1', 'examStep2', 
-                'examStep3', 'examInterface', 'examIntermission', 'examCompletionView', 'adminDashboard'
-            ];
-            sections.forEach(id => {
-                const el = document.getElementById(id);
-                if (el) el.classList.add('hidden');
-            });
-            document.getElementById('examHeaderCenter').classList.add('hidden');
+        // --- 2. UI NAVIGATION ---
+        function showView(viewId) {
+            document.querySelectorAll('main > div').forEach(el => el.classList.add('hidden'));
+            document.getElementById(viewId).classList.remove('hidden');
         }
 
         function switchAuthTab(tab) {
-            document.getElementById('participantLoginForm').classList.add('hidden');
-            document.getElementById('participantRegisterForm').classList.add('hidden');
-            document.getElementById('adminLoginForm').classList.add('hidden');
-
-            document.getElementById('tabParticipantLoginBtn').className = "flex-1 py-3 text-sm font-semibold text-slate-500 border-b-2 border-transparent transition";
-            document.getElementById('tabParticipantRegisterBtn').className = "flex-1 py-3 text-sm font-semibold text-slate-500 border-b-2 border-transparent transition";
-            document.getElementById('tabAdminLoginBtn').className = "flex-1 py-3 text-sm font-semibold text-slate-500 border-b-2 border-transparent transition";
-
-            if (tab === 'participant-login') {
-                document.getElementById('participantLoginForm').classList.remove('hidden');
-                document.getElementById('tabParticipantLoginBtn').className = "flex-1 py-3 text-sm font-semibold text-blue-600 border-b-2 border-blue-600 bg-white transition";
-            } else if (tab === 'participant-register') {
-                document.getElementById('participantRegisterForm').classList.remove('hidden');
-                document.getElementById('tabParticipantRegisterBtn').className = "flex-1 py-3 text-sm font-semibold text-blue-600 border-b-2 border-blue-600 bg-white transition";
-            } else if (tab === 'admin-login') {
-                document.getElementById('adminLoginForm').classList.remove('hidden');
-                document.getElementById('tabAdminLoginBtn').className = "flex-1 py-3 text-sm font-semibold text-slate-800 border-b-2 border-slate-800 bg-white transition";
-            }
-        }
-
-        function switchDashTab(tab) {
-            document.getElementById('dashBiodataTab').classList.add('hidden');
-            document.getElementById('dashResultsTab').classList.add('hidden');
-
-            document.getElementById('tabBioBtn').className = "py-2.5 px-4 font-semibold text-sm text-slate-500 border-b-2 border-transparent transition";
-            document.getElementById('tabResultBtn').className = "py-2.5 px-4 font-semibold text-sm text-slate-500 border-b-2 border-transparent transition";
-
-            if (tab === 'biodata') {
-                document.getElementById('dashBiodataTab').classList.remove('hidden');
-                document.getElementById('tabBioBtn').className = "py-2.5 px-4 font-semibold text-sm text-blue-600 border-b-2 border-blue-600 transition";
+            if(tab === 'login') {
+                document.getElementById('form-login-container').classList.remove('hidden');
+                document.getElementById('form-register-container').classList.add('hidden');
+                document.getElementById('tab-login').className = "flex-1 py-4 text-center font-bold text-blue-600 border-b-2 border-blue-600 bg-blue-50";
+                document.getElementById('tab-register').className = "flex-1 py-4 text-center font-medium text-slate-500 hover:bg-slate-50";
             } else {
-                document.getElementById('dashResultsTab').classList.remove('hidden');
-                document.getElementById('tabResultBtn').className = "py-2.5 px-4 font-semibold text-sm text-blue-600 border-b-2 border-blue-600 transition";
-                renderParticipantResultsHistory();
+                document.getElementById('form-login-container').classList.add('hidden');
+                document.getElementById('form-register-container').classList.remove('hidden');
+                document.getElementById('tab-register').className = "flex-1 py-4 text-center font-bold text-blue-600 border-b-2 border-blue-600 bg-blue-50";
+                document.getElementById('tab-login').className = "flex-1 py-4 text-center font-medium text-slate-500 hover:bg-slate-50";
             }
         }
 
+        function updateHeader() {
+            if(currentUser && currentUser.role === 'peserta') {
+                document.getElementById('header-user-ui').classList.remove('hidden');
+                document.getElementById('header-username').textContent = currentUser.nama;
+                document.getElementById('header-avatar').textContent = currentUser.nama.charAt(0).toUpperCase();
+            } else {
+                document.getElementById('header-user-ui').classList.add('hidden');
+            }
+        }
+
+        // --- 3. AUTHENTICATION LOGIC ---
         function handleParticipantRegister(e) {
             e.preventDefault();
-            const fullName = document.getElementById('regFullName').value.trim();
-            const birthDateStr = document.getElementById('regBirthDate').value; // YYYY-MM-DD
-            const motherName = document.getElementById('regMotherName').value.trim();
+            const nama = document.getElementById('reg-nama').value.trim();
+            const tgl = document.getElementById('reg-tgl').value; // YYYY-MM-DD
+            const ibu = document.getElementById('reg-ibu').value.trim().toLowerCase();
 
-            if (!fullName || !birthDateStr || !motherName) {
-                alert("Harap lengkapi semua kolom biodata!");
+            const p = tgl.split('-');
+            const username = `${p[2]}${p[1]}${p[0]}`; // DDMMYYYY
+            const password = ibu.replace(/\s+/g, '');
+
+            if (localUsers.find(u => u.username === username)) {
+                alert("Akun dengan tanggal lahir ini sudah terdaftar!");
                 return;
             }
 
-            // Generate Username DDMMYYYY
-            const parts = birthDateStr.split('-');
-            const username = `${parts[2]}${parts[1]}${parts[0]}`; // DDMMYYYY
-            // Generate Password (mother name lowercase no spaces)
-            const password = motherName.toLowerCase().replace(/\s+/g, '');
+            const newUser = { role: 'peserta', nama, tglLahir: tgl, username, password, status: 'Belum Ujian', score: null };
+            localUsers.push(newUser);
+            localStorage.setItem(DB_USERS_KEY, JSON.stringify(localUsers));
+            
+            // Simpan ke Firebase
+            if(window.savePesertaToCloud) window.savePesertaToCloud(newUser);
 
-            // Check if user already exists
-            const existing = state.participants.find(p => p.username === username);
-            if (existing) {
-                alert(`Akun dengan tanggal lahir ${birthDateStr} sudah terdaftar! Username Anda: ${username}`);
-                switchAuthTab('participant-login');
-                document.getElementById('loginUsername').value = username;
-                return;
-            }
-
-            const newParticipant = {
-                id: 'USER_' + Date.now(),
-                fullName: fullName,
-                birthDate: birthDateStr,
-                motherName: motherName,
-                username: username,
-                password: password,
-                status: 'Belum Ujian',
-                score: null,
-                examDate: null,
-                snapshots: []
-            };
-
-            state.participants.push(newParticipant);
-            saveParticipantsToStorage();
-
-            alert(`Pendaftaran Berhasil!\n\nID/Username Anda: ${username}\nPassword Anda: ${password}\n\nSilakan gunakan kredensial ini untuk login.`);
-            switchAuthTab('participant-login');
-            document.getElementById('loginUsername').value = username;
-            document.getElementById('loginPassword').value = password;
+            alert(`Pendaftaran Berhasil!\nUsername: ${username}\nPassword: ${password}`);
+            document.getElementById('login-user').value = username;
+            switchAuthTab('login');
         }
 
         function handleParticipantLogin(e) {
             e.preventDefault();
-            const username = document.getElementById('loginUsername').value.trim();
-            const password = document.getElementById('loginPassword').value.trim().toLowerCase();
+            const u = document.getElementById('login-user').value.trim();
+            const p = document.getElementById('login-pass').value.trim().toLowerCase();
 
-            const user = state.participants.find(p => p.username === username && p.password.toLowerCase() === password);
-
+            const user = localUsers.find(x => x.username === u && x.password === p);
             if (user) {
-                state.currentUser = { role: 'participant', data: user };
-                updateHeaderUserUI();
-                goToDashboard();
+                currentUser = user;
+                updateHeader();
+                renderDashboard();
+                showView('view-dashboard');
             } else {
-                alert("Username (DDMMYYYY) atau Password (Nama Ibu) salah!");
+                alert("Username atau Password salah!");
             }
         }
 
         function handleAdminLogin(e) {
             e.preventDefault();
-            const userVal = document.getElementById('adminUsername').value.trim();
-            const passVal = document.getElementById('adminPassword').value.trim();
-
-            if (userVal === ADMIN_CREDS.username && passVal === ADMIN_CREDS.password) {
-                state.currentUser = { role: 'admin', data: { username: 'Admin' } };
-                updateHeaderUserUI();
-                goToAdminDashboard();
+            const u = document.getElementById('admin-user').value.trim();
+            const p = document.getElementById('admin-pass').value.trim();
+            if (u === ADMIN_USER && p === ADMIN_PASS) {
+                document.getElementById('admin-modal').classList.add('hidden');
+                currentUser = { role: 'admin', nama: 'Administrator' };
+                renderAdminDashboard();
+                showView('view-admin');
             } else {
-                alert("Username atau Password Admin salah!");
+                alert("Kredensial Admin Salah!");
             }
         }
 
         function handleLogout() {
-            if (confirm("Apakah Anda yakin ingin keluar?")) {
-                stopCameraStream();
-                state.currentUser = null;
-                updateHeaderUserUI();
-                hideAllSections();
-                document.getElementById('authPage').classList.remove('hidden');
-                switchAuthTab('participant-login');
+            if(examState.stream) {
+                examState.stream.getTracks().forEach(track => track.stop());
             }
+            clearInterval(examState.timer);
+            document.getElementById('exam-monitoring-ui').classList.add('hidden');
+            currentUser = null;
+            updateHeader();
+            showView('view-auth');
         }
 
-        function updateHeaderUserUI() {
-            const logoutBtn = document.getElementById('headerLogoutBtn');
-            const nameDisp = document.getElementById('headerUserName');
-            const avatar = document.getElementById('userAvatar');
+        function renderDashboard() {
+            document.getElementById('dash-name').textContent = currentUser.nama;
+            document.getElementById('dash-username').textContent = currentUser.username;
+            document.getElementById('bio-nama').textContent = currentUser.nama;
+            document.getElementById('bio-tgl').textContent = currentUser.tglLahir;
+            document.getElementById('bio-ibu').textContent = "********";
+            document.getElementById('bio-status').textContent = currentUser.status;
+        }
 
-            if (state.currentUser) {
-                logoutBtn.classList.remove('hidden');
-                if (state.currentUser.role === 'admin') {
-                    nameDisp.textContent = "Administrator";
-                    avatar.textContent = "A";
-                    avatar.className = "w-9 h-9 rounded-full bg-slate-800 text-white font-semibold flex items-center justify-center text-sm shadow";
-                } else {
-                    const name = state.currentUser.data.fullName;
-                    nameDisp.textContent = name;
-                    avatar.textContent = name.charAt(0).toUpperCase();
-                    avatar.className = "w-9 h-9 rounded-full bg-blue-600 text-white font-semibold flex items-center justify-center text-sm shadow";
-                }
-            } else {
-                logoutBtn.classList.add('hidden');
-                nameDisp.textContent = "Tamu";
-                avatar.textContent = "?";
-                avatar.className = "w-9 h-9 rounded-full bg-slate-400 text-white font-semibold flex items-center justify-center text-sm shadow";
+        // --- 4. EXAM CAMERA & FLOW ---
+        async function startPreparationFlow() {
+            if(currentUser.status === 'Selesai') {
+                alert("Anda sudah menyelesaikan ujian!"); return;
             }
-        }
-
-        function checkSession() {
-            if (!state.currentUser) {
-                hideAllSections();
-                document.getElementById('authPage').classList.remove('hidden');
-            }
-        }
-
-        function goToDashboard() {
-            if (!state.currentUser || state.currentUser.role !== 'participant') return;
-            
-            // Refresh currentUser data from state
-            const freshData = state.participants.find(p => p.id === state.currentUser.data.id);
-            if (freshData) state.currentUser.data = freshData;
-
-            const u = state.currentUser.data;
-            document.getElementById('dashNameDisplay').textContent = u.fullName;
-            document.getElementById('dashNoPesertaDisplay').textContent = u.username;
-
-            document.getElementById('bioFullName').textContent = u.fullName;
-            document.getElementById('bioBirthDate').textContent = u.birthDate;
-            document.getElementById('bioMotherName').textContent = u.motherName;
-            document.getElementById('bioUsername').textContent = u.username;
-
-            hideAllSections();
-            document.getElementById('participantDashboard').classList.remove('hidden');
-            switchDashTab('biodata');
-        }
-
-        function renderParticipantResultsHistory() {
-            const container = document.getElementById('examResultsHistory');
-            const u = state.currentUser.data;
-
-            if (!u.score && u.score !== 0) {
-                container.innerHTML = `
-                    <div class="text-center py-8 text-slate-400">
-                        <i class="fa-solid fa-file-circle-xmark text-4xl mb-2"></i>
-                        <p class="text-sm">Anda belum mengerjakan Ujian CBT.</p>
-                    </div>
-                `;
-            } else {
-                const isPassed = u.score >= 60;
-                container.innerHTML = `
-                    <div class="bg-slate-50 border border-slate-200 rounded-xl p-5 flex flex-col sm:flex-row justify-between items-center gap-4">
-                        <div class="space-y-1 text-center sm:text-left">
-                            <span class="inline-block px-2.5 py-0.5 rounded text-[11px] font-bold ${isPassed ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}">
-                                ${isPassed ? 'LULUS / MEMENUHI' : 'BELUM MEMENUHI'}
-                            </span>
-                            <h4 class="font-bold text-slate-800 text-base">Hasil Simulasi CBT Adaptif</h4>
-                            <p class="text-xs text-slate-500">Tanggal Pengerjaan: ${u.examDate || '-'}</p>
-                        </div>
-                        <div class="text-center sm:text-right bg-white px-4 py-2 rounded-lg border border-slate-200 shadow-xs">
-                            <span class="text-xs font-semibold text-slate-400 block uppercase">Skor Perolehan</span>
-                            <span class="text-2xl font-extrabold ${isPassed ? 'text-emerald-600' : 'text-red-600'}">${u.score} / 100</span>
-                        </div>
-                    </div>
-                `;
-            }
-        }
-
-        async function requestCameraAccess() {
-            const videoElem = document.getElementById('step2WebcamVideo');
-            const miniVideoElem = document.getElementById('miniWebcamFeed');
-            const placeholder = document.getElementById('cameraOfflinePlaceholder');
-            const simCanvas = document.getElementById('simulatedCameraCanvas');
-            const statusDot = document.getElementById('cameraStatusDot');
-            const statusText = document.getElementById('cameraStatusText');
-
-            statusText.textContent = "Meminta Izin...";
-            statusDot.className = "w-2 h-2 rounded-full bg-amber-400 animate-ping";
-
+            showView('view-camera-setup');
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-                state.examSession.cameraStream = stream;
+                examState.stream = stream;
+                const video = document.getElementById('setup-webcam');
+                video.srcObject = stream;
+                video.classList.remove('hidden');
+                document.getElementById('camera-placeholder').classList.add('hidden');
                 
-                videoElem.srcObject = stream;
-                miniVideoElem.srcObject = stream;
-
-                videoElem.classList.remove('hidden');
-                miniVideoElem.classList.remove('hidden');
-                placeholder.classList.add('hidden');
-                simCanvas.classList.add('hidden');
-
-                statusDot.className = "w-2 h-2 rounded-full bg-emerald-500";
-                statusText.textContent = "Kamera Aktif";
+                // Beri izin tombol lanjut
+                const btnLanjut = document.getElementById('btn-camera-lanjut');
+                btnLanjut.disabled = false;
+                btnLanjut.classList.remove('opacity-50', 'cursor-not-allowed');
+                btnLanjut.classList.add('hover:bg-blue-700');
             } catch (err) {
-                console.warn("Camera hardware access failed, fallbacking to simulated camera canvas...", err);
-                // Fallback simulation
-                startSimulatedCameraCanvas();
+                alert("Gagal mengakses kamera. Kamera wajib aktif untuk ujian!");
+                console.error(err);
             }
         }
 
-        function startSimulatedCameraCanvas() {
-            const videoElem = document.getElementById('step2WebcamVideo');
-            const placeholder = document.getElementById('cameraOfflinePlaceholder');
-            const canvas = document.getElementById('simulatedCameraCanvas');
-            const statusDot = document.getElementById('cameraStatusDot');
-            const statusText = document.getElementById('cameraStatusText');
-
-            videoElem.classList.add('hidden');
-            placeholder.classList.add('hidden');
-            canvas.classList.remove('hidden');
-
-            statusDot.className = "w-2 h-2 rounded-full bg-blue-500";
-            statusText.textContent = "Simulasi Kamera";
-
-            const ctx = canvas.getContext('2d');
-            canvas.width = 320;
-            canvas.height = 240;
-
-            let frame = 0;
-            function drawSim() {
-                if (!canvas.offsetParent) return; // stop if not visible
-                frame++;
-                ctx.fillStyle = '#1e293b';
-                ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-                // Animated avatar circle
-                ctx.fillStyle = '#3b82f6';
-                ctx.beginPath();
-                ctx.arc(160, 100 + Math.sin(frame * 0.05) * 5, 45, 0, Math.PI * 2);
-                ctx.fill();
-
-                // User Initial
-                ctx.fillStyle = '#ffffff';
-                ctx.font = 'bold 36px Inter';
-                ctx.textAlign = 'center';
-                ctx.fillText(state.currentUser?.data?.fullName?.charAt(0) || 'P', 160, 112 + Math.sin(frame * 0.05) * 5);
-
-                // Watermark
-                ctx.fillStyle = '#94a3b8';
-                ctx.font = '10px Inter';
-                ctx.fillText('WEBCAM MONITORING ACTIVE', 160, 210);
-
-                requestAnimationFrame(drawSim);
-            }
-            drawSim();
-        }
-
-        function captureWebcamSnapshot() {
-            if (!state.currentUser || state.currentUser.role !== 'participant') return;
-
-            const canvas = document.createElement('canvas');
-            canvas.width = 160;
-            canvas.height = 120;
-            const ctx = canvas.getContext('2d');
-
-            const video = document.getElementById('step2WebcamVideo');
-            if (state.examSession.cameraStream && video && !video.classList.contains('hidden')) {
-                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-            } else {
-                // Mock capture frame
-                ctx.fillStyle = '#0f172a';
-                ctx.fillRect(0, 0, canvas.width, canvas.height);
-                ctx.fillStyle = '#3b82f6';
-                ctx.beginPath();
-                ctx.arc(80, 50, 25, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.fillStyle = '#ffffff';
-                ctx.font = 'bold 18px Inter';
-                ctx.textAlign = 'center';
-                ctx.fillText(state.currentUser.data.fullName.charAt(0), 80, 57);
-            }
-
-            const dataUrl = canvas.toDataURL('image/jpeg', 0.6);
+        function mulaiUjian() {
+            // Pindahkan stream video ke header kecil
+            const headerVideo = document.getElementById('live-webcam-header');
+            headerVideo.srcObject = examState.stream;
+            document.getElementById('exam-monitoring-ui').classList.remove('hidden');
             
-            // Push snapshot to user participant record
-            const p = state.participants.find(item => item.id === state.currentUser.data.id);
-            if (p) {
-                if (!p.snapshots) p.snapshots = [];
-                p.snapshots.push({
-                    timestamp: new Date().toLocaleTimeString(),
-                    image: dataUrl
-                });
-                saveParticipantsToStorage();
-            }
+            examState.currentIndex = 0;
+            showView('view-exam');
+            loadQuestion();
         }
 
-        function stopCameraStream() {
-            if (state.examSession.cameraStream) {
-                state.examSession.cameraStream.getTracks().forEach(track => track.stop());
-                state.examSession.cameraStream = null;
-            }
+        function prepareMainExam() {
+            examState.mode = 'utama';
+            document.getElementById('seksi-title').textContent = 'Ujian Utama';
+            showView('view-technical-instructions');
+            document.getElementById('exam-monitoring-ui').classList.add('hidden'); // sembunyikan sebentar di instruksi
         }
 
-        function startExamWorkflow() {
-            hideAllSections();
-            document.getElementById('examStep1').classList.remove('hidden');
-        }
-
-        function goToExamStep(stepNum) {
-            hideAllSections();
-            if (stepNum === 2) {
-                document.getElementById('examStep2').classList.remove('hidden');
-                requestCameraAccess();
-            } else if (stepNum === 3) {
-                document.getElementById('examStep3').classList.remove('hidden');
-                document.getElementById('warmupDurationLabel').textContent = Math.round(state.durations.warmup / 60) + " Menit";
-            }
-        }
-
-        function startWarmupExam() {
-            state.examSession.active = true;
-            state.examSession.type = 'warmup';
-            state.examSession.currentIndex = 0;
-            state.examSession.userAnswers = {};
-
-            // Mark participant as 'Sedang Ujian'
-            updateParticipantStatus('Sedang Ujian');
-
-            // Show Exam Header Center (Timer & Mini Live Cam)
-            document.getElementById('examHeaderCenter').classList.remove('hidden');
-
-            hideAllSections();
-            document.getElementById('examInterface').classList.remove('hidden');
-            renderCurrentQuestion();
-            
-            // Take initial proctoring snapshot
-            captureWebcamSnapshot();
-        }
-
-        function startMainExam() {
-            state.examSession.active = true;
-            state.examSession.type = 'main';
-            state.examSession.currentIndex = 0;
-            state.examSession.userAnswers = {};
-
-            document.getElementById('examHeaderCenter').classList.remove('hidden');
-
-            hideAllSections();
-            document.getElementById('examInterface').classList.remove('hidden');
-            renderCurrentQuestion();
-
-            captureWebcamSnapshot();
-        }
-
-        function renderCurrentQuestion() {
-            const type = state.examSession.type;
-            const questions = state.questions[type];
-            const index = state.examSession.currentIndex;
-
-            if (index >= questions.length) {
-                // Sesi Selesai
-                if (type === 'warmup') {
-                    finishWarmupSection();
-                } else {
-                    finishMainExamSection();
-                }
+        function loadQuestion() {
+            const soalArr = examState.mode === 'pemanasan' ? bankSoal.pemanasan : bankSoal.utama;
+            if (examState.currentIndex >= soalArr.length) {
+                selesaiBagian();
                 return;
             }
 
-            const q = questions[index];
-
-            // Update Badges
-            document.getElementById('examTypeBadge').textContent = type === 'warmup' ? 'SEKSI PEMANASAN' : 'SEKSI UJIAN UTAMA';
-            document.getElementById('examTypeBadge').className = type === 'warmup' 
-                ? 'bg-amber-100 text-amber-800 font-bold px-3 py-1 rounded-full uppercase text-xs' 
-                : 'bg-blue-100 text-blue-800 font-bold px-3 py-1 rounded-full uppercase text-xs';
-
-            document.getElementById('currentQuestionNumDisplay').textContent = index + 1;
-            document.getElementById('totalQuestionNumDisplay').textContent = questions.length;
-
-            // Render Passage Context
-            const passageElem = document.getElementById('passageContent');
-            passageElem.innerHTML = q.passage || "<em>Tidak ada teks ilustrasi tambahan untuk soal ini.</em>";
-
-            // Render Question Text
-            document.getElementById('questionText').textContent = q.question;
-
-            // Render Options
-            const optionsContainer = document.getElementById('optionsContainer');
-            optionsContainer.innerHTML = '';
-
-            ['A', 'B', 'C', 'D'].forEach(key => {
-                if (q.options[key]) {
-                    const optBtn = document.createElement('label');
-                    optBtn.className = "flex items-center gap-3 p-3.5 border border-slate-200 rounded-xl cursor-pointer hover:bg-blue-50/50 hover:border-blue-300 transition group";
-                    optBtn.innerHTML = `
-                        <input type="radio" name="cbtOption" value="${key}" class="w-4 h-4 text-blue-600 focus:ring-blue-500">
-                        <span class="w-7 h-7 rounded-full bg-slate-100 group-hover:bg-blue-600 group-hover:text-white flex items-center justify-center font-bold text-xs text-slate-600 transition">
-                            ${key}
-                        </span>
-                        <span class="text-sm text-slate-700 font-medium">${q.options[key]}</span>
-                    `;
-                    optionsContainer.appendChild(optBtn);
-                }
+            const q = soalArr[examState.currentIndex];
+            document.getElementById('q-number').textContent = examState.currentIndex + 1;
+            document.getElementById('q-total').textContent = soalArr.length;
+            document.getElementById('q-text').textContent = q.teks;
+            document.getElementById('exam-context').innerHTML = `<div class="bg-orange-100/50 p-8 rounded-lg shadow-inner text-center"><h4 class="text-2xl font-bold text-orange-800 mb-2">Simulasi Konteks Ujian</h4><p class="text-orange-700">Bacalah teks dengan saksama untuk menjawab soal nomor ${examState.currentIndex + 1}.</p></div>`;
+            
+            const optContainer = document.getElementById('q-options');
+            optContainer.innerHTML = '';
+            
+            const labels = ['A', 'B', 'C', 'D'];
+            q.opsi.forEach((opt, idx) => {
+                const div = document.createElement('label');
+                div.className = "flex items-center gap-3 p-4 border rounded-lg hover:bg-slate-50 cursor-pointer transition";
+                div.innerHTML = `
+                    <input type="radio" name="opt" value="${idx}" class="w-4 h-4 text-blue-600 focus:ring-blue-500">
+                    <span class="font-bold text-slate-500 w-6">${labels[idx]}.</span>
+                    <span class="text-slate-700">${opt}</span>
+                `;
+                optContainer.appendChild(div);
             });
 
-            // Start Timer per Soal
-            startQuestionTimer(type === 'warmup' ? state.durations.warmup : state.durations.main);
+            startTimer(q.durasi);
         }
 
-        function startQuestionTimer(durationSeconds) {
-            clearInterval(state.examSession.timerInterval);
-            state.examSession.timeRemaining = durationSeconds;
+        function startTimer(seconds) {
+            clearInterval(examState.timer);
+            examState.timeRemaining = seconds;
+            updateTimerUI();
 
-            updateTimerDisplay();
-
-            state.examSession.timerInterval = setInterval(() => {
-                state.examSession.timeRemaining--;
-                updateTimerDisplay();
-
-                if (state.examSession.timeRemaining <= 0) {
-                    clearInterval(state.examSession.timerInterval);
-                    // Timeout -> Otomatis Pindah Soal
-                    submitAndNextQuestion(true);
+            examState.timer = setInterval(() => {
+                examState.timeRemaining--;
+                updateTimerUI();
+                if(examState.timeRemaining <= 0) {
+                    clearInterval(examState.timer);
+                    submitAnswer(true); // timeout auto submit
                 }
             }, 1000);
         }
 
-        function updateTimerDisplay() {
-            const sec = state.examSession.timeRemaining;
-            const m = Math.floor(sec / 60).toString().padStart(2, '0');
-            const s = (sec % 60).toString().padStart(2, '0');
-            document.getElementById('examTimerDisplay').textContent = `${m}:${s}`;
+        function updateTimerUI() {
+            const m = Math.floor(examState.timeRemaining / 60).toString().padStart(2, '0');
+            const s = (examState.timeRemaining % 60).toString().padStart(2, '0');
+            document.getElementById('timer-display').textContent = `${m}:${s}`;
         }
 
-        function submitAndNextQuestion(isTimeout = false) {
-            clearInterval(state.examSession.timerInterval);
-
-            // Capture Selected Answer
-            const selectedOpt = document.querySelector('input[name="cbtOption"]:checked');
-            const qIndex = state.examSession.currentIndex;
-            state.examSession.userAnswers[qIndex] = selectedOpt ? selectedOpt.value : null;
-
-            // Increment Question
-            state.examSession.currentIndex++;
-
-            // Periodically take camera snapshot
-            if (state.examSession.currentIndex % 3 === 0) {
-                captureWebcamSnapshot();
+        function submitAnswer(isTimeout = false) {
+            const selected = document.querySelector('input[name="opt"]:checked');
+            if (!selected && !isTimeout) {
+                alert("Silakan pilih jawaban terlebih dahulu!"); return;
             }
-
-            renderCurrentQuestion();
-        }
-
-        function finishWarmupSection() {
-            clearInterval(state.examSession.timerInterval);
-            document.getElementById('examHeaderCenter').classList.add('hidden');
-
-            hideAllSections();
-            document.getElementById('examIntermission').classList.remove('hidden');
-            document.getElementById('mainExamDurationLabel').textContent = Math.round(state.durations.main / 60) + " Menit";
-        }
-
-        function finishMainExamSection() {
-            clearInterval(state.examSession.timerInterval);
-            document.getElementById('examHeaderCenter').classList.add('hidden');
-
-            // Calculate Score
-            const mainQuestions = state.questions.main;
-            let correctCount = 0;
-
-            mainQuestions.forEach((q, idx) => {
-                const userAns = state.examSession.userAnswers[idx];
-                if (userAns && userAns === q.correct) {
-                    correctCount++;
-                }
-            });
-
-            const score = Math.round((correctCount / mainQuestions.length) * 100);
-
-            // Update participant record
-            const p = state.participants.find(item => item.id === state.currentUser.data.id);
-            if (p) {
-                p.status = 'Selesai';
-                p.score = score;
-                p.examDate = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
-                saveParticipantsToStorage();
-            }
-
-            // Final Snapshot
-            captureWebcamSnapshot();
-
-            // Display Results
-            document.getElementById('finalScoreDisplay').textContent = `${score} / 100`;
-            document.getElementById('finalScoreDetail').textContent = `Anda menjawab benar ${correctCount} dari ${mainQuestions.length} soal ujian utama.`;
-
-            hideAllSections();
-            document.getElementById('examCompletionView').classList.remove('hidden');
-        }
-
-        function updateParticipantStatus(status) {
-            if (!state.currentUser || state.currentUser.role !== 'participant') return;
-            const p = state.participants.find(item => item.id === state.currentUser.data.id);
-            if (p) {
-                p.status = status;
-                saveParticipantsToStorage();
-            }
-        }
-
-        function goToAdminDashboard() {
-            hideAllSections();
-            document.getElementById('adminDashboard').classList.remove('hidden');
             
-            // Set input values for durations
-            document.getElementById('adminWarmupDurationInput').value = state.durations.warmup;
-            document.getElementById('adminMainDurationInput').value = state.durations.main;
-
-            updateAdminStats();
-            switchAdminTab('questions');
-        }
-
-        function updateAdminStats() {
-            document.getElementById('statTotalPeserta').textContent = state.participants.length;
-            const finishedCount = state.participants.filter(p => p.status === 'Selesai').length;
-            document.getElementById('statUjianSelesai').textContent = finishedCount;
-            document.getElementById('statWarmupCount').textContent = state.questions.warmup.length;
-            document.getElementById('statMainCount').textContent = state.questions.main.length;
-        }
-
-        function switchAdminTab(tab) {
-            document.getElementById('adminTabQuestions').classList.add('hidden');
-            document.getElementById('adminTabParticipants').classList.add('hidden');
-            document.getElementById('adminTabProctoring').classList.add('hidden');
-
-            document.getElementById('adminTabQuestionsBtn').className = "py-2.5 px-4 font-semibold text-sm text-slate-500 border-b-2 border-transparent transition whitespace-nowrap";
-            document.getElementById('adminTabParticipantsBtn').className = "py-2.5 px-4 font-semibold text-sm text-slate-500 border-b-2 border-transparent transition whitespace-nowrap";
-            document.getElementById('adminTabProctoringBtn').className = "py-2.5 px-4 font-semibold text-sm text-slate-500 border-b-2 border-transparent transition whitespace-nowrap";
-
-            if (tab === 'questions') {
-                document.getElementById('adminTabQuestions').classList.remove('hidden');
-                document.getElementById('adminTabQuestionsBtn').className = "py-2.5 px-4 font-semibold text-sm text-blue-600 border-b-2 border-blue-600 transition whitespace-nowrap";
-                renderAdminQuestionsTable();
-            } else if (tab === 'participants') {
-                document.getElementById('adminTabParticipants').classList.remove('hidden');
-                document.getElementById('adminTabParticipantsBtn').className = "py-2.5 px-4 font-semibold text-sm text-blue-600 border-b-2 border-blue-600 transition whitespace-nowrap";
-                renderAdminParticipantsTable();
-            } else if (tab === 'proctoring') {
-                document.getElementById('adminTabProctoring').classList.remove('hidden');
-                document.getElementById('adminTabProctoringBtn').className = "py-2.5 px-4 font-semibold text-sm text-blue-600 border-b-2 border-blue-600 transition whitespace-nowrap";
-                renderAdminProctoringGallery();
-            }
-        }
-
-        function renderAdminQuestionsTable() {
-            const tbody = document.getElementById('adminQuestionsTableBody');
-            tbody.innerHTML = '';
-
-            const allQ = [
-                ...state.questions.warmup.map((q, i) => ({ ...q, category: 'warmup', origIndex: i })),
-                ...state.questions.main.map((q, i) => ({ ...q, category: 'main', origIndex: i }))
-            ];
-
-            allQ.forEach((q, idx) => {
-                const tr = document.createElement('tr');
-                tr.className = "hover:bg-slate-50";
-                tr.innerHTML = `
-                    <td class="p-3">
-                        <span class="px-2 py-0.5 rounded text-[10px] font-bold ${q.category === 'warmup' ? 'bg-amber-100 text-amber-800' : 'bg-blue-100 text-blue-800'} uppercase">
-                            ${q.category}
-                        </span>
-                    </td>
-                    <td class="p-3 font-bold">${q.origIndex + 1}</td>
-                    <td class="p-3 text-slate-700 max-w-xs truncate">${q.question}</td>
-                    <td class="p-3 font-bold text-emerald-600">(${q.correct})</td>
-                    <td class="p-3 text-center space-x-2">
-                        <button onclick="deleteQuestion('${q.category}', ${q.origIndex})" class="text-red-600 hover:text-red-800 font-medium">
-                            <i class="fa-solid fa-trash"></i>
-                        </button>
-                    </td>
-                `;
-                tbody.appendChild(tr);
-            });
-        }
-
-        function renderAdminParticipantsTable() {
-            const tbody = document.getElementById('adminParticipantsTableBody');
-            tbody.innerHTML = '';
-
-            if (state.participants.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="7" class="p-4 text-center text-slate-400">Belum ada akun peserta terdaftar.</td></tr>`;
-                return;
+            const soalArr = examState.mode === 'pemanasan' ? bankSoal.pemanasan : bankSoal.utama;
+            const q = soalArr[examState.currentIndex];
+            const ansVal = selected ? parseInt(selected.value) : -1;
+            
+            if (examState.mode === 'utama') {
+                examState.answers.push({ id: q.id, answer: ansVal, isCorrect: ansVal === q.jawaban });
             }
 
-            state.participants.forEach(p => {
-                const tr = document.createElement('tr');
-                tr.className = "hover:bg-slate-50";
-
-                let statusBadge = `<span class="bg-slate-100 text-slate-600 px-2 py-0.5 rounded text-[10px] font-bold">Belum Ujian</span>`;
-                if (p.status === 'Sedang Ujian') {
-                    statusBadge = `<span class="bg-amber-100 text-amber-700 px-2 py-0.5 rounded text-[10px] font-bold animate-pulse">Sedang Ujian</span>`;
-                } else if (p.status === 'Selesai') {
-                    statusBadge = `<span class="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded text-[10px] font-bold">Selesai</span>`;
-                }
-
-                tr.innerHTML = `
-                    <td class="p-3 font-mono font-bold text-blue-600">${p.username}</td>
-                    <td class="p-3 font-medium text-slate-800">${p.fullName}</td>
-                    <td class="p-3 text-slate-600">${p.birthDate}</td>
-                    <td class="p-3 text-slate-600">${p.motherName}</td>
-                    <td class="p-3">${statusBadge}</td>
-                    <td class="p-3 font-bold">${p.score !== null ? p.score + ' / 100' : '-'}</td>
-                    <td class="p-3 text-center">
-                        <button onclick="deleteParticipant('${p.id}')" class="text-red-600 hover:text-red-800 text-xs font-semibold">
-                            <i class="fa-solid fa-user-xmark mr-1"></i>Hapus
-                        </button>
-                    </td>
-                `;
-                tbody.appendChild(tr);
-            });
+            examState.currentIndex++;
+            loadQuestion();
         }
 
-        function renderAdminProctoringGallery() {
-            const gallery = document.getElementById('proctoringGallery');
-            gallery.innerHTML = '';
-
-            let hasSnapshots = false;
-
-            state.participants.forEach(p => {
-                if (p.snapshots && p.snapshots.length > 0) {
-                    hasSnapshots = true;
-                    const latestSnap = p.snapshots[p.snapshots.length - 1];
-
-                    const card = document.createElement('div');
-                    card.className = "bg-slate-50 border border-slate-200 rounded-xl overflow-hidden shadow-xs flex flex-col justify-between";
-                    card.innerHTML = `
-                        <div>
-                            <div class="relative bg-slate-900 h-40 flex items-center justify-center">
-                                <img src="${latestSnap.image}" class="w-full h-full object-cover" alt="Rekaman ${p.fullName}">
-                                <div class="absolute bottom-2 left-2 bg-black/60 text-white text-[10px] px-2 py-0.5 rounded">
-                                    <i class="fa-regular fa-clock mr-1"></i>${latestSnap.timestamp}
-                                </div>
-                            </div>
-                            <div class="p-3">
-                                <h4 class="font-bold text-slate-800 text-sm">${p.fullName}</h4>
-                                <p class="text-xs text-slate-500">ID: ${p.username}</p>
-                            </div>
-                        </div>
-                        <div class="p-3 pt-0">
-                            <a href="${latestSnap.image}" download="Pengawasan_${p.username}.jpg" class="block w-full text-center py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-semibold transition">
-                                <i class="fa-solid fa-download mr-1"></i>Unduh Tangkapan Kamera
-                            </a>
-                        </div>
-                    `;
-                    gallery.appendChild(card);
-                }
-            });
-
-            if (!hasSnapshots) {
-                gallery.innerHTML = `<div class="col-span-full py-8 text-center text-slate-400">Belum ada hasil rekaman kamera peserta yang tersimpan.</div>`;
-            }
-        }
-
-        function saveDurationSettings() {
-            const wSec = parseInt(document.getElementById('adminWarmupDurationInput').value);
-            const mSec = parseInt(document.getElementById('adminMainDurationInput').value);
-
-            if (wSec > 0 && mSec > 0) {
-                state.durations.warmup = wSec;
-                state.durations.main = mSec;
-                saveDurationsToStorage();
-                alert("Pengaturan durasi ujian berhasil disimpan!");
+        function selesaiBagian() {
+            clearInterval(examState.timer);
+            if (examState.mode === 'pemanasan') {
+                document.getElementById('exam-monitoring-ui').classList.add('hidden');
+                showView('view-intermission');
             } else {
-                alert("Durasi harus bernilai lebih besar dari 0 detik!");
+                hitungHasil();
             }
         }
 
-        function deleteQuestion(category, index) {
-            if (confirm("Hapus soal ini?")) {
-                state.questions[category].splice(index, 1);
-                saveQuestionsToStorage();
-                updateAdminStats();
-                renderAdminQuestionsTable();
+        function hitungHasil() {
+            // Matikan kamera dan header ujian
+            if(examState.stream) examState.stream.getTracks().forEach(track => track.stop());
+            document.getElementById('exam-monitoring-ui').classList.add('hidden');
+            
+            const correct = examState.answers.filter(a => a.isCorrect).length;
+            const total = bankSoal.utama.length;
+            const score = Math.round((correct / total) * 100);
+
+            // Update UI Hasil
+            document.getElementById('res-score').textContent = score;
+            document.getElementById('res-correct').textContent = correct;
+            document.getElementById('res-total').textContent = total;
+
+            // Update Local Data
+            currentUser.status = 'Selesai';
+            currentUser.score = score;
+            const idx = localUsers.findIndex(u => u.username === currentUser.username);
+            if(idx > -1) {
+                localUsers[idx] = currentUser;
+                localStorage.setItem(DB_USERS_KEY, JSON.stringify(localUsers));
             }
-        }
 
-        function deleteParticipant(id) {
-            if (confirm("Hapus akun peserta ini beserta riwayat nilainya?")) {
-                state.participants = state.participants.filter(p => p.id !== id);
-                saveParticipantsToStorage();
-                updateAdminStats();
-                renderAdminParticipantsTable();
+            // Simpan Ke Firebase
+            if(window.saveHasilToCloud) {
+                window.saveHasilToCloud(currentUser.username, {
+                    nama: currentUser.nama,
+                    score: score,
+                    correctCount: correct,
+                    details: examState.answers
+                });
             }
+
+            showView('view-result');
         }
 
-        function openQuestionModal() {
-            document.getElementById('questionModal').classList.remove('hidden');
-            document.getElementById('editQuestionIndex').value = -1;
-            document.getElementById('qPassage').value = '';
-            document.getElementById('qText').value = '';
-            document.getElementById('qOptA').value = '';
-            document.getElementById('qOptB').value = '';
-            document.getElementById('qOptC').value = '';
-            document.getElementById('qOptD').value = '';
+        // --- 5. ADMIN LOGIC ---
+        function renderAdminDashboard() {
+            const tbody = document.getElementById('admin-table-body');
+            tbody.innerHTML = '';
+            localUsers.forEach(u => {
+                const tr = document.createElement('tr');
+                tr.className = "border-b hover:bg-slate-50";
+                tr.innerHTML = `
+                    <td class="p-3">${u.username}</td>
+                    <td class="p-3 font-medium">${u.nama}</td>
+                    <td class="p-3"><span class="${u.status==='Selesai'?'text-green-600':'text-orange-500'} font-bold text-sm">${u.status}</span></td>
+                    <td class="p-3 font-bold">${u.score !== null ? u.score : '-'}</td>
+                `;
+                tbody.appendChild(tr);
+            });
         }
-
-        function closeQuestionModal() {
-            document.getElementById('questionModal').classList.add('hidden');
-        }
-
-        function handleSaveQuestion(e) {
-            e.preventDefault();
-            const category = document.getElementById('qCategory').value;
-            const newQ = {
-                passage: document.getElementById('qPassage').value.trim(),
-                question: document.getElementById('qText').value.trim(),
-                options: {
-                    A: document.getElementById('qOptA').value.trim(),
-                    B: document.getElementById('qOptB').value.trim(),
-                    C: document.getElementById('qOptC').value.trim(),
-                    D: document.getElementById('qOptD').value.trim()
-                },
-                correct: document.getElementById('qCorrectKey').value
-            };
-
-            state.questions[category].push(newQ);
-            saveQuestionsToStorage();
-            closeQuestionModal();
-            updateAdminStats();
-            renderAdminQuestionsTable();
-            alert("Soal berhasil ditambahkan!");
-        }
-
-        function toggleUserMenu() {
-            if (state.currentUser) {
-                if (state.currentUser.role === 'admin') {
-                    goToAdminDashboard();
-                } else {
-                    goToDashboard();
-                }
-            }
-        }
+        
+        // Init view pertama
+        showView('view-auth');
     </script>
 </body>
 </html>
